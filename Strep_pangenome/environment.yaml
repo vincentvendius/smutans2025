@@ -1,0 +1,34 @@
+name: Strep_anvio
+channels:
+  - bioconda
+  - conda-forge
+dependencies:
+  - "sqlite >=3.31.1"
+  - prodigal
+  - mcl
+  - muscle
+  - hmmer
+  - diamond
+  - blast
+  - megahit
+  - spades
+  - bowtie2
+  - bwa
+  - samtools=1.9
+  - centrifuge
+  - trimal
+  - iqtree
+  - trnascan-se
+  - r-base
+  - r-stringi
+  - r-tidyverse
+  - r-magrittr
+  - r-optparse
+  - bioconductor-qvalue
+  - fasttree
+  - fastani
+  - metabat2
+  - seqkit
+#curl -L https://github.com/merenlab/anvio/releases/download/v7.1/anvio-7.1.tar.gz \
+#        --output anvio-7.1.tar.gz
+#pip install anvio-7.1.tar.gz

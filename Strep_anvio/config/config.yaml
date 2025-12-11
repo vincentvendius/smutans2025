@@ -1,0 +1,30 @@
+#prefix: mutans_1kb
+#prefix: pyogenes_2_5kb
+#prefix: porphyromonas_2_5kb
+prefix: aa_1kb
+#organism: "Streptococcus mutans"
+#organism: "Porphyromonas"
+#organism: "Yersinia"
+organism: "Aggregatibacter Actinomycetemcomitans"
+filesuffix: .mutans.x_human.fq.gz
+filesuffix: .mergedSE.gz
+#sampledata: /maps/projects/lundbeck/people/dsw670/projects/strep/mutans/data/map/ancient/units.tsv
+#sampledata: /maps/projects/lundbeck/scratch/dsw670/mutans_krakenuniq/units_map_pyogenes.tsv
+tmppath: /projects/sikora/people/xvh856/projects/pipelines/Strep_anvio/data/tmp
+#sampledata: /projects/sikora/people/xvh856/projects/pipelines/Strep_anvio/data/sample_info/units.tsv
+#sampledata: /projects/sikora/people/xvh856/projects/pipelines/Strep_anvio/data/sample_info/Yana_libs.tsv
+#sampledata: /projects/sikora/people/xvh856/projects/pipelines/Strep_anvio/data/sample_info/Yersinia.tsv
+sampledata: /projects/sikora/people/xvh856/projects/pipelines/Strep_anvio/data/sample_info/DA117.tsv
+binning_algo: metabat2
+collection_name: metabat_col
+assembly_dir: /projects/sikora/people/xvh856/projects/pipelines/Strep_anvio/data/read_assembly/
+assembly_params_antonio: --preset meta-sensitive --prune-level 3 --disconnect-ratio 0.3
+assembly_params_meta_sensitive: --preset meta-sensitive
+assembly_threads: 90
+minlen_db: 1000
+#bowtie_params: -D 15 -R 2 -N 1 -L 22 -i S,1,1.15 --np 1 --mp "1,1" --rdg "0,1" --rfg "0,1" --score-min "L,0,-0.1" --no-unal -k 100
+bowtie_params: ""
+contigdb_threads: 80
+profile_threads: 30
+binning_threads: 30
+metadmg_threads: 40

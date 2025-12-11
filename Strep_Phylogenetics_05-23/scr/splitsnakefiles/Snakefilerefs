@@ -1,0 +1,142 @@
+## --------------------------------------------------------------------------------
+## params from configfilr
+import pandas as pd
+configfile:"/projects/sikora/people/xvh856/projects/pipelines/Strep_Phylogenetics_05-23/config.yaml"
+workdir:"/projects/sikora/people/xvh856/projects/pipelines/Strep_Phylogenetics_05-23/"
+
+PREFIX = config["prefix"] ## prefix
+TMP_DIR = config["tmp_dir"] ## path for temp files
+
+## --------------------------------------------------------------------------------
+## global parameters
+
+SAMPLESREAD=pd.read_table(config["target"]["accessions"],comment="#",sep="\t", lineterminator="\n"
+)
+SAMPLETABLE=SAMPLESREAD.set_index(["sampleId"],drop=False)
+SAMPLENAMES = SAMPLETABLE.index.unique()
+## --------------------------------------------------------------------------------
+## output file sets
+
+
+vcf_all = expand("vcf/" + PREFIX + ".{ref}.mm2.wgaln.snps.{ext}", ref=config["ref"], ext=["vcf.gz", "vcf.gz.tbi"])
+
+## --------------------------------------------------------------------------------
+## targets
+
+rule all:
+    input:
+        vcf_all,
+        #bed_all
+
+        
+## --------------------------------------------------------------------------------
+## rules
+
+#align fastq file of sample against mutans reference 
+rule aln_minimap2:
+    input:
+        ref=lambda wildcards: config["ref"][wildcards.ref]["fa"],
+        target=(lambda wildcards: SAMPLETABLE.fq[wildcards.target]),
+    output:
+        paf="paf/{target}." + PREFIX + ".{ref}.mm2.paf"
+    threads:
+        12
+    shell:
+        """
+        minimap2 -cx asm5 --cs -t{threads} {input.ref} {input.target} > {output.paf}
+        """
+
+#call variants from alignment file
+rule call_variants:
+    input:
+        paf="paf/{target}." + PREFIX + ".{ref}.mm2.paf"
+    output:
+        var="paf/{target}." + PREFIX + ".{ref}.mm2.var"
+    log:
+        log="logs/{target}." + PREFIX + ".{ref}.call_variants.log"
+    params:
+        min_l=config["min_l"]
+    shell:
+        """
+        (cat {input.paf} | sort -k6,6 -k8,8n | paftools.js call -l{params.min_l} -L{params.min_l} - > {output.var}) 2> {log}
+        """
+
+#from the paf file, get the VCF file using bcftools. 
+rule get_vcf:
+    input:
+        paf="paf/{target}." + PREFIX + ".{ref}.mm2.paf",
+        ref=lambda wildcards: config["ref"][wildcards.ref]["fa"],
+    output:
+        vcf="vcf/{target}." + PREFIX + ".{ref}.mm2.vcf.gz",
+        tbi="vcf/{target}." + PREFIX + ".{ref}.mm2.vcf.gz.tbi"
+    params:
+        min_l=config["min_l"]
+    shell:
+        """
+        cat {input.paf} | sort -k6,6 -k8,8n | paftools.js call -f {input.ref} -l{params.min_l} -L{params.min_l} - | bcftools view -Oz -e 'ILEN > 0' > {output.vcf}
+        bcftools index -t {output.vcf}
+        """
+
+#Get 
+rule get_bed_aligned:
+    input:
+        var="paf/{target}." + PREFIX + ".{ref}.mm2.var"
+    output:
+        bed="bed/{target}." + PREFIX + ".{ref}.mm2.aligned.bed"
+    shell:
+        """
+        awk '$1 == "R"' {input.var} | cut -f2-4 > {output.bed}
+        """
+
+rule get_bed_not_aligned:
+    input:
+        bed="bed/{target}." + PREFIX + ".{ref}.mm2.aligned.bed",
+        genome=lambda wildcards: config["ref"][wildcards.ref]["genome"],
+    output:
+        bed="bed/{target}." + PREFIX + ".{ref}.mm2.not_aligned.bed",
+    shell:
+        """
+        bedtools complement -i {input.bed} -g {input.genome} > {output.bed}
+        """
+        
+rule get_fa:
+    input:
+        ref=lambda wildcards: config["ref"][wildcards.ref]["fa"],
+        bed="bed/{target}." + PREFIX + ".{ref}.mm2.not_aligned.bed",
+        vcf="vcf/{target}." + PREFIX + ".{ref}.mm2.vcf.gz"
+    output:
+        fa="fa/{target}." + PREFIX + ".{ref}.mm2.wgaln.fa"
+    params:
+        contig=lambda wildcards: config["ref"][wildcards.ref]["contig"],
+    shell:
+        """
+        samtools faidx {input.ref} {params.contig} | bcftools consensus -m {input.bed} --mark-del N {input.vcf} | perl -p -e 's/>.*/>{wildcards.target}/' > {output.fa}
+        """
+
+rule combine_fa:
+    input:
+        target=expand("fa/{target}." + PREFIX + ".{{ref}}.mm2.wgaln.fa", target=SAMPLENAMES), 
+        ref=lambda wildcards: config["ref"][wildcards.ref]["fa"],
+    output:
+        fa="fa/" + PREFIX + ".{ref}.mm2.wgaln.all.fa"
+    params:
+        contig=lambda wildcards: config["ref"][wildcards.ref]["contig"],
+    shell:
+        """
+        samtools faidx {input.ref} {params.contig} | cat - {input.target} > {output}
+        """
+
+rule get_vcf_snps:
+    input:
+        fa="fa/" + PREFIX + ".{ref}.mm2.wgaln.all.fa"
+    output:
+        vcf="vcf/" + PREFIX + ".{ref}.mm2.wgaln.snps.vcf.gz",
+        tbi="vcf/" + PREFIX + ".{ref}.mm2.wgaln.snps.vcf.gz.tbi"
+    params:
+        contig=lambda wildcards: config["ref"][wildcards.ref]["contig"],
+    shell:
+        """
+        snp-sites -b -v {input.fa} | python fix_vcf_snpsites.py -r {params.contig} | bcftools view -a -Oz -s ^{params.contig} > {output.vcf}
+        bcftools index -t {output.vcf}
+        """
+

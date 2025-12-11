@@ -1,0 +1,604 @@
+## --------------------------------------------------------------------------------
+## params from configfilr
+import pandas as pd
+import glob
+configfile:"/projects/sikora/people/xvh856/projects/pipelines/Strep_Phylogenetics_05-23/config.yaml"
+workdir:"/projects/sikora/people/xvh856/projects/pipelines/Strep_Phylogenetics_05-23/"
+
+PREFIX = config["prefix"] ## PREFIX
+ref=config["ref"]
+TMP_DIR=config["tmp_dir"]
+DAT_DIR=config["data_dir"]
+MQ=config["MQ"]
+MODE=config["mode"]
+
+## --------------------------------------------------------------------------------
+## global parameters
+#Modern samples
+samplesread=pd.read_table(config["target"]["accessions"],comment="#",sep="\t", lineterminator="\n"
+)
+sampletable=samplesread.set_index(["sampleId"],drop=False)
+SAMPLENAMES = sampletable.index.unique()
+#high coverage ancient samples
+magsread=pd.read_table(config["mags"],comment="#",sep="\t",lineterminator="\n")
+magstable=magsread.set_index(["sampleId"],drop=False)
+MAGSNAMES=magstable.index.unique()
+#Mid coverage samples
+mid_cov = pd.read_table(config["midcoverage"],comment="#",sep="\t",lineterminator="\n").set_index(["sampleId"],drop=False)
+MIDCOVSAMPLES = mid_cov.index.unique()
+#Low coverage samples
+unit_df = pd.read_table(config["units"], comment="#").set_index(["sampleId"], drop=False)
+samples = unit_df.index.values.tolist()
+## --------------------------------------------------------------------------------
+## helpers
+
+## --------------------------------------------------------------------------------
+## output file sets
+
+vcf_all = expand("vcf/" + PREFIX + ".{ref}.mm2.wgaln.snps.{ext}", ref=ref,ext=["vcf.gz", "vcf.gz.tbi"])
+plots_all = expand("jplace/{sample}." + PREFIX + ".{ref}.epa_ng.newick", sample=samples, ref=ref)
+
+
+## --------------------------------------------------------------------------------
+## functions
+
+
+def get_bam(wildcards):
+    f=unit_df.loc[(wildcards.sample), "fa"]
+    return f
+
+
+## --------------------------------------------------------------------------------
+## targets
+
+rule all:
+    input:
+        gene_cov=expand(DAT_DIR + "/gff_bed/{ref}." + PREFIX + ".concat_gene_cov.tsv",ref=ref),
+#        vcf_all,
+#        tree=expand("raxml_postgub/"+PREFIX + ".{ref}.raxml.bestModel",ref=ref),
+        #plots_all,
+
+
+
+
+## --------------------------------------------------------------------------------
+## rules
+
+#align fastq file of sample against mutans reference 
+#call variants from alignment file
+#from the paf file, get the vcf file using bcftools. 
+rule get_fasta_modern:
+    input:
+        ref=lambda wildcards: config["ref"][wildcards.ref]["fa"],
+        target=(lambda wildcards: sampletable.fq[wildcards.target]),
+    output:
+        bed=DAT_DIR + "/bed/{target}." + PREFIX + ".{ref}.mm2.aligned.bed",
+        fa=DAT_DIR + "/fa/{target}." + PREFIX + ".{ref}.mm2.wgaln.fa"
+    threads:
+        12
+    params:
+        paf=DAT_DIR + "/paf/{target}." + PREFIX + ".{ref}.mm2.paf",
+        var=DAT_DIR + "/paf/{target}." + PREFIX + ".{ref}.mm2.var",
+        vcf=DAT_DIR + "/vcf/{target}." + PREFIX + ".{ref}.mm2.vcf.gz",
+        tbi=DAT_DIR + "/vcf/{target}." + PREFIX + ".{ref}.mm2.vcf.gz.tbi",
+        bedalign=DAT_DIR + "/bed/{target}." + PREFIX + ".{ref}.mm2.not_aligned.bed",
+        genome=lambda wildcards: config["ref"][wildcards.ref]["genome"],
+        min_l=config["min_l"],
+        contig=lambda wildcards: config["ref"][wildcards.ref]["contig"],
+        asm=config["asm"],
+    log:
+        log="logs/{target}." + PREFIX + ".{ref}.call_variants.log"
+    shell:
+        """
+        minimap2 -cx {params.asm} --cs -t{threads} {input.ref} {input.target} > {params.paf}
+        (cat {params.paf} | sort -k6,6 -k8,8n | paftools.js call -l{params.min_l} -L{params.min_l} - > {params.var}) 2> {log}
+        cat {params.paf} | sort -k6,6 -k8,8n | paftools.js call -f {input.ref} -l{params.min_l} -L{params.min_l} - | bcftools view -Oz -e 'ILEN > 0' > {params.vcf}
+        bcftools index -t {params.vcf}
+        awk '$1 == "R"' {params.var} | cut -f2-4 > {output.bed}
+        bedtools complement -i {output.bed} -g {params.genome} > {params.bedalign}
+        samtools faidx {input.ref} {params.contig} | bcftools consensus -m {params.bedalign} --mark-del N {params.vcf} | perl -p -e 's/>.*/>{wildcards.target}/' > {output.fa}
+        """
+        #rm {params.paf} {params.var} {params.vcf} {params.tbi} {params.bed} {params.bedalign}
+       
+#combine all modern fasta files to define the core genome 
+rule combine_fa_modern:
+    input:
+        target=expand(DAT_DIR + "/fa/{target}." + PREFIX + ".{{ref}}.mm2.wgaln.fa", target=SAMPLENAMES),
+        ref=lambda wildcards: config["ref"][wildcards.ref]["fa"],
+    output:
+        vcf=DAT_DIR + "/vcf/" + PREFIX + ".{ref}.mm2.wgaln.vcf.gz",
+        tbi=DAT_DIR + "/vcf/" + PREFIX + ".{ref}.mm2.wgaln.vcf.gz.tbi"
+    params:
+        fa=DAT_DIR + "/fa/" + PREFIX + ".{ref}.mm2.wgaln.all.fa",
+        contig=lambda wildcards: config["ref"][wildcards.ref]["contig"],
+    shell:
+        """
+        samtools faidx {input.ref} {params.contig} | cat - {input.target} > {params.fa}
+        snp-sites -b -v {params.fa} | python scr/fix_vcf_snpsites.py -r {params.contig} | bcftools view -a -Oz -s ^{params.contig} > {output.vcf}
+        bcftools index -t {output.vcf}
+        """
+#define core genome
+rule get_bed_core:
+    input:
+        vcf=DAT_DIR + "/vcf/" + PREFIX + ".{ref}.mm2.wgaln.vcf.gz",
+        tbi=DAT_DIR + "/vcf/" + PREFIX + ".{ref}.mm2.wgaln.vcf.gz.tbi"
+    output:
+        bed=DAT_DIR + "/bed/ref." + PREFIX + ".{ref}.mm2.wgaln.all.core.bed",
+    params:
+        max_miss_core=config["max_miss_core"]
+    shell:
+        """
+        bcftools view -a -e 'F_MISS > {params.max_miss_core}' {input.vcf} | bcftools query -f '%CHROM\\t%POS0\\t%POS\\n' | bedtools merge -i stdin > {output.bed}
+        """
+
+
+#now switching to working on the mags
+rule get_vcf_highcov:
+    input:
+        bam=(lambda wildcards: magstable.fq[wildcards.mag]),
+        ref=lambda wildcards: config["ref"][wildcards.ref]["fa"],
+        bed=DAT_DIR + "/bed/ref." + PREFIX + ".{ref}.mm2.wgaln.all.core.bed",
+    params:
+        contig=lambda wildcards: config["ref"][wildcards.ref]["contig"],
+    output:
+        vcf=DAT_DIR + "/vcf/{mag}." + PREFIX + ".{ref}.mm2.vcf.gz",
+        tbi=DAT_DIR + "/vcf/{mag}." + PREFIX + ".{ref}.mm2.vcf.gz.tbi",
+    shell:
+        """
+        bcftools mpileup -q20 -a FORMAT/AD,FORMAT/DP -f {input.ref} {input.bam} -Ou | bcftools call --ploidy 1 -m -A -a FORMAT/GQ -Oz | bcftools view -e 'ILEN > 0|FORMAT/DP<4' -Oz > {output.vcf}
+        bcftools index -t {output.vcf}
+        """
+        #samtools view -bh -q{MQ} -F 0x400 -e 'qlen >= 30' {input.bam} {params.contig} | samtools mpileup -B -f{input.ref} - | python /maps/projects/lundbeck/people/dsw670/projects/plasmodium/src/get_haploid_vcf_from_pileup.py -s {wildcards.mag} --skip-indel | bgzip -c | bcftools +setGT -T {input.bed} -Oz -- -t q -n . -i 'FMT/MP < 0.8 | FMT/DP < 3' > {output.vcf}
+
+rule merge_vcf_with_ancient_highcov:
+    input:
+        vcf=expand(DAT_DIR + "/vcf/{mag}." + PREFIX + ".{ref}.mm2.vcf.gz",mag=MAGSNAMES,ref=config["ref"]),
+        tbi=expand(DAT_DIR + "/vcf/{mag}." + PREFIX + ".{ref}.mm2.vcf.gz.tbi",mag=MAGSNAMES,ref=config["ref"]),
+        refvcf=DAT_DIR + "/vcf/" + PREFIX + ".{ref}.mm2.wgaln.vcf.gz",
+        reftbi=DAT_DIR + "/vcf/" + PREFIX + ".{ref}.mm2.wgaln.vcf.gz.tbi",
+        bed=DAT_DIR + "/bed/ref." + PREFIX + ".{ref}.mm2.wgaln.all.core.bed",
+    params:
+        max_miss_core=config["max_miss_core"],
+        combinedvcf=DAT_DIR + "/vcf/" + PREFIX + ".{ref}.all.mm2.vcf.gz",
+        combinedtbi=DAT_DIR + "/vcf/" + PREFIX + ".{ref}.all.mm2.vcf.gz.tbi",
+    output:
+        filtvcf=DAT_DIR + "/vcf/{ref}" + PREFIX + ".filt.all.mm2.vcf.gz",
+        filttbi=DAT_DIR + "/vcf/{ref}" + PREFIX + ".filt.all.mm2.vcf.gz.tbi",
+    shell:
+        """
+        bcftools merge {input.vcf} {input.refvcf} | bcftools view -a -V indels -T {input.bed} -Oz > {output.filtvcf}
+        #{params.combinedvcf} > {output.filtvcf}
+        bcftools index -t {output.filtvcf}
+        """
+        #
+        #bcftools index -t {params.combinedvcf}
+        #rm {params.combinedvcf} {params.combinedtbi}
+
+rule generate_fasta_mags:
+    input:
+        filtvcf=DAT_DIR + "/vcf/{ref}" + PREFIX + ".filt.all.mm2.vcf.gz",
+        filttbi=DAT_DIR + "/vcf/{ref}" + PREFIX + ".filt.all.mm2.vcf.gz.tbi",
+    output:
+        phy=DAT_DIR + "/vcf/"+PREFIX+".{ref}.genotyped.SNP.fasta",
+    shell:
+        """
+        for sample in $(bcftools query -l {input.filtvcf})
+            do
+                bcftools view -s $sample {input.filtvcf} |bcftools query -f'[%TGT]'| (echo -e ">"$sample; cat -) | seqtk seq -l60 | perl -p -e 's/\./N/g'| perl -p -e 's/\*/-/g' >> {output.phy}
+            done
+        """
+
+
+rule raxml_pregub:
+    input:
+        phy=DAT_DIR + "/vcf/"+PREFIX+".{ref}.genotyped.SNP.fasta",
+    output:
+        model=DAT_DIR + "/raxml_pregub/"+PREFIX + ".{ref}.raxml.bestModel",
+        tree=DAT_DIR + "/raxml_pregub/"+PREFIX + ".{ref}.raxml.bestTree",
+        bootstraps=DAT_DIR + "/raxml_pregub/" + PREFIX + ".{ref}.raxml.bootstraps",
+#    params:
+        #outgroup="NEO105",
+        #outgroup="GCF_002355215N1",
+    threads:
+        32
+    shell:
+        """
+        raxml-ng --all --msa {input.phy} --model GTR+G --tree pars{{10}} --bs-trees 200 --threads {threads} --prefix raxml_pregub/{PREFIX}.{wildcards.ref} --redo
+        raxml-ng --support --tree {output.tree} --bs-trees {output.bootstraps} --redo
+        """
+#--outgroup {params.outgroup} 
+
+
+
+#get the list of snps which were used to build the original tree (See Snakefilemags)
+#
+rule gubbins:
+    input:
+        tree=DAT_DIR + "/raxml_pregub/"+PREFIX + ".{ref}.raxml.bestTree",
+        phy=DAT_DIR + "/vcf/"+PREFIX+".{ref}.genotyped.SNP.fasta",
+    output:
+        aln=DAT_DIR + "/fa/"+PREFIX+".{ref}.masked.aln", 
+    conda:
+        "envs/gubbins.yaml"
+    threads:
+        52
+    params:
+        #outgroup="NEO105",
+        #outgroup="GCF_002355215N1",
+        gff=PREFIX+".recombination_predictions.gff",
+        dates="../mut_dates_noNA",
+    shell:
+       """
+       cd gubbins
+       run_gubbins.py ../{input.phy} --bootstrap 200 --prefix {PREFIX} -i 20 --first-tree-builder rapidnj --first-model JC --date {params.dates} --threads {threads} --tree-builder raxmlng --model GTRGAMMA 
+       mask_gubbins_aln.py --aln ../{input.phy} --gff {params.gff} --out ../{output.aln}
+       cd ..
+       """ 
+
+##Get the midcoverage samples and combine them with the masked alignment
+#rule get_vcf_midcov:
+#    input:
+#        ref=lambda wildcards: config["ref"][wildcards.ref]["fa"],
+#        bam=(lambda wildcards: mid_cov.fa[wildcards.midcov]),
+#        filtvcf="vcf/{ref}" + PREFIX + ".filt.all.mm2.vcf.gz",
+#        filttbi="vcf/{ref}" + PREFIX + ".filt.all.mm2.vcf.gz.tbi",
+#    output:
+#        vcf="vcf/{midcov}." + PREFIX + ".{ref}.mm2.vcf.gz",
+#        tbi="vcf/{midcov}." + PREFIX + ".{ref}.mm2.vcf.gz.tbi",
+#    shell:
+#        """
+#        bcftools mpileup -q20 -a FORMAT/AD,FORMAT/DP -f {input.ref} {input.bam} -Ou | bcftools call --ploidy 1 -m -A -a FORMAT/GQ -Oz | bcftools view -Oz -e 'ILEN > 0|FORMAT/DP<4' > {output.vcf}
+#        bcftools index -t {output.vcf}
+#        """
+#
+##combine the mid coverage samples with the filtered vcf file to get the core genome corresponding to that included in the masked alignment
+#rule merge_mid_vcf:
+#    input:
+#        midvcf=expand("vcf/{midcov}." + PREFIX + ".{ref}.mm2.vcf.gz",midcov=MIDCOVSAMPLES,ref=config["ref"]),
+#        midtbi=expand("vcf/{midcov}." + PREFIX + ".{ref}.mm2.vcf.gz.tbi",midcov=MIDCOVSAMPLES,ref=config["ref"]),
+#        filtvcf="vcf/{ref}" + PREFIX + ".filt.all.mm2.vcf.gz",
+#        filttbi="vcf/{ref}" + PREFIX + ".filt.all.mm2.vcf.gz.tbi",
+#    output:
+#        filtraxmlvcf="vcf/{ref}" + PREFIX + ".filt.all.mid.mm2.vcf.gz",
+#        filtraxmltbi="vcf/{ref}" + PREFIX + ".filt.all.mid.mm2.vcf.gz.tbi",
+#    shell:
+#        """
+#        bcftools merge {input.midvcf} {input.filtvcf} | bcftools view -V indels -T {input.filtvcf} -Oz > {output.filtraxmlvcf}
+#        bcftools index -t {output.filtraxmlvcf}
+#        """
+##get fasta files for the midcoverage samples
+##convert the individual samples in the merged vcf file to a fasta file
+#rule generate_fasta_mid:
+#    input:
+#        filtraxmlvcf="vcf/{ref}" + PREFIX + ".filt.all.mid.mm2.vcf.gz",
+#        filtraxmltbi="vcf/{ref}" + PREFIX + ".filt.all.mid.mm2.vcf.gz.tbi",
+#    output:
+#        fa_midcov="fa_midcov/{midcov}." + PREFIX + ".{ref}.mm2.wgaln.fa",
+#    shell:
+#        """
+#        bcftools view -s {wildcards.midcov} {input.filtraxmlvcf} |bcftools query -f'[%TGT]'| perl -p -e 's/\/.//g' | (echo -e ">"{wildcards.midcov}; cat -) | seqtk seq -l60 | perl -p -e 's/\./N/g' > {output.fa_midcov}
+#        """
+
+#Get a vcf file for the low coverage bam files 
+rule get_sample_vcf_low_qual_ancient:
+    input:
+        ref=lambda wildcards: config["ref"][wildcards.ref]["fa"],
+        filtvcf=DAT_DIR + "/vcf/{ref}" + PREFIX + ".filt.all.mm2.vcf.gz",
+        filttbi=DAT_DIR + "/vcf/{ref}" + PREFIX + ".filt.all.mm2.vcf.gz.tbi",
+        bam=(lambda wildcards: unit_df.fa[wildcards.sample]),
+        #bam=get_bam,
+    params:
+        contig=lambda wildcards: config["ref"][wildcards.ref]["contig"],
+        placementSnps=DAT_DIR + "/vcfplacement/" + PREFIX + "{ref}.snps.bed.gz",
+    output:
+        lowvcf=DAT_DIR + "/vcfplacement/{sample}." + PREFIX + ".{ref}.mm2.vcf.gz",
+        lowtbi=DAT_DIR + "/vcfplacement/{sample}." + PREFIX + ".{ref}.mm2.vcf.gz.tbi",
+    shell:
+        """
+        bcftools query -f '%POS0\\t%POS\\n' {input.filtvcf} | awk '{{print "{params.contig}\\t"$1"\\t"$2}}' | bgzip -c > {params.placementSnps}
+        samtools view -bh -q{MQ} -F 0x400 -e 'qlen >= 30' {input.bam} {params.contig} | samtools mpileup -B -f{input.ref} -l{params.placementSnps} - | python /maps/projects/lundbeck/people/dsw670/projects/plasmodium/src/get_haploid_vcf_from_pileup.py {MODE} -s {wildcards.sample}_rnd | bgzip -c > {output.lowvcf}
+        bcftools index -t {output.lowvcf}
+        """
+
+#merge the placement vcf with the core vcf like with the midcoverage samples to get the correct coordinates selected
+rule merge_low_vcf:
+    input:
+        lowvcf=expand(DAT_DIR + "/vcfplacement/{sample}." + PREFIX + ".{ref}.mm2.vcf.gz",sample=samples,ref=config["ref"]),
+        lowtbi=expand(DAT_DIR + "/vcfplacement/{sample}." + PREFIX + ".{ref}.mm2.vcf.gz.tbi",sample=samples,ref=config["ref"]),
+        filtvcf=DAT_DIR + "/vcf/{ref}" + PREFIX + ".filt.all.mm2.vcf.gz",
+        filttbi=DAT_DIR + "/vcf/{ref}" + PREFIX + ".filt.all.mm2.vcf.gz.tbi",
+    output:
+        placementvcf=DAT_DIR + "/vcfplacement/" + PREFIX + ".{ref}.vcf.gz",
+        placementidx=DAT_DIR + "/vcfplacement/" + PREFIX + ".{ref}.vcf.gz.tbi",
+    shell:
+        """
+        bcftools merge -Ob -m all {input.lowvcf} {input.filtvcf} | bcftools +setGT - -- -t q -n . -i 'GT~"2" | GT~"3" | GT~"4"' | bcftools view -a -Oz > {output.placementvcf}
+        bcftools index -t {output.placementvcf}
+        """
+
+
+#get fasta files for the lowcoverage samples
+#convert the individual samples in the merged vcf file to a fasta file
+rule generate_fasta_low:
+    input:
+        placementvcf=DAT_DIR + "/vcfplacement/" + PREFIX + ".{ref}.vcf.gz",
+        placementidx=DAT_DIR + "/vcfplacement/" + PREFIX + ".{ref}.vcf.gz.tbi"
+    output:
+        fa_lowcov=DAT_DIR + "/fa_lowcov/{sample}." + PREFIX + ".{ref}.mm2.wgaln.fa",
+    shell:
+        """
+        bcftools view -s {wildcards.sample}_rnd {input.placementvcf} |bcftools query -f'[%TGT]'| perl -p -e 's/\/.//g' | (echo -e ">"{wildcards.sample}; cat -) | seqtk seq -l60 | perl -p -e 's/\./N/g' > {output.fa_lowcov}
+        """
+
+#Get biallelic sites out that are present in most samples        
+#We throw out not only indels but also multiallelic sites.
+#To get a representative picture of diversity within lineages that are biallelic.. but not triallelic
+#We expect that triallelic sites in low coverage or heterogenous samples are usually errors, and are in either case so rare that we do not need them
+rule snpsites:
+    input:
+#        fa_midcov=expand("fa_midcov/{midcov}." + PREFIX + ".{ref}.mm2.wgaln.fa",midcov=MIDCOVSAMPLES,ref=config["ref"]),
+        fa_lowcov=expand(DAT_DIR + "/fa_lowcov/{sample}." + PREFIX + ".{ref}.mm2.wgaln.fa",sample=samples,ref=config["ref"]),
+        aln=DAT_DIR + "/fa/"+PREFIX+".{ref}.masked.aln", 
+    output:
+        #coreall="fa/" + PREFIX + ".{ref}.coreall.fasta",
+        corewithplacement=DAT_DIR + "/fa/" + PREFIX + ".{ref}.coreplacement.fasta",
+        snpvcf=DAT_DIR + "/vcf/{ref}" + PREFIX + ".filt.snps.all.mm2.vcf.gz",
+        snptbi=DAT_DIR + "/vcf/{ref}" + PREFIX + ".filt.snps.all.mm2.vcf.gz.tbi",
+        snpallvcf=DAT_DIR + "/vcf/{ref}" + PREFIX + ".filt.snps.all.placement.mm2.vcf.gz",
+        snpalltbi=DAT_DIR + "/vcf/{ref}" + PREFIX + ".filt.snps.all.placement.mm2.vcf.gz.tbi",
+    params:
+        alnfai=DAT_DIR + "/fa/" + PREFIX + ".{ref}.masked.aln.fai",
+        MISS="0.1",
+        correctedcore=DAT_DIR + "/fa/" + PREFIX + ".{ref}.correctcore.aln",
+    shell:
+        """
+        snp-sites -v {input.aln} | python scr/fix_vcf_snpsites.py -r NZ_CP044221.1 | bcftools view -a | bcftools view -Oz -m2 -M2 -e 'MAC=0|F_MISS>0.1' -V indels > {output.snpvcf} 
+        bcftools index -t {output.snpvcf}
+        cat {input.aln} {input.fa_lowcov} > {output.corewithplacement}
+        snp-sites -v {output.corewithplacement} | python scr/fix_vcf_snpsites.py -r NZ_CP044221.1 | bcftools view -a | bcftools view -Oz -m2 -M2 -e 'MAC=0|F_MISS>0.2' -V indels > {output.snpallvcf} 
+        bcftools index -t {output.snpallvcf}
+        """
+        #samtools faidx {input.aln}
+        #remove_ids=($(awk '{{print $1}}' {params.alnfai} | grep -v RISE373))
+        #samtools faidx -o {params.correctedcore} {input.aln} \"${{remove_ids[@]}}\"
+        #cat {params.correctedcore} {input.fa_midcov} > {output.coreall}
+        #cat {input.fa_midcov} {input.fa_lowcov} {params.correctedcore} > {output.coreall}
+        
+
+##get the sample fastas for the lowcoverage samples so we can use them later for placement
+#rule lowcovsnps:
+#    input:
+#        fa_lowcov="fa_lowcov/{sample}." + PREFIX + ".{ref}.mm2.wgaln.fa",
+#        snpvcf="vcf/{ref}" + PREFIX + ".filt.snps.all.mm2.vcf.gz",
+#        snptbi="vcf/{ref}" + PREFIX + ".filt.snps.all.mm2.vcf.gz.tbi",
+#    output:
+#        fa="fa_placement/{sample}." + PREFIX + ".{ref}.mm2.wgaln.fa",
+#    shell:
+#        """
+#        bcftools view -s {wildcards.sample} {input.snpvcf} |bcftools query -f'[%TGT]'| perl -p -e 's/\/.//g' | (echo -e ">"{wildcards.sample}; cat -) | seqtk seq -l60 | perl -p -e 's/\./N/g' > {output.fa}
+#        """
+
+##get the fasta file for the rest of the samples for raxml
+#rule get_biallelic_fasta:
+#    input:
+#        snpvcf="vcf/{ref}" + PREFIX + ".filt.snps.all.mm2.vcf.gz",
+#        snptbi="vcf/{ref}" + PREFIX + ".filt.snps.all.mm2.vcf.gz.tbi",
+#    output:
+#        snpsfasta="vcf/"+PREFIX+".{ref}.onlybiallelic.fasta",
+#    params:
+#        lowcovlist=samples,
+#        nolowcov="fa/" + PREFIX + ".{ref}.snps_lowcov_excluded.vcf",
+#    shell:
+#        """
+#        for sample in $(bcftools query -l {input.snpvcf})
+#            do
+#                bcftools view -s $sample {input.snpvcf} |bcftools query -f'[%TGT]'| (echo -e ">"$sample; cat -) | seqtk seq -l60 | perl -p -e 's/\./N/g'| perl -p -e 's/\*/-/g' >> {output.snpsfasta}
+#            done
+#        """
+        #exclude_samples=$(echo {params.lowcovlist} | sed 's/ /,/g')
+        #bcftools view -s^$exclude_samples {input.snpvcf} > {params.nolowcov}
+        #bcftools index -t {params.nolowcov}
+
+        #snp-sites -v {input.aln} | python fix_vcf_snpsites.py -r NZ_CP044221.1 | bcftools view -a | bcftools view -Oz -m2 -M2 > {output.snpvcf}
+        #snp-sites -b -v {input.aln} | python fix_vcf_snpsites.py -r NZ_CP044221.1 | bcftools view -a | bcftools view -Oz -m2 -M2 > {output.snpvcf}
+
+
+rule get_plink:
+    input:
+        snpallvcf=DAT_DIR + "/vcf/{ref}" + PREFIX + ".filt.snps.all.placement.mm2.vcf.gz",
+        snpalltbi=DAT_DIR + "/vcf/{ref}" + PREFIX + ".filt.snps.all.placement.mm2.vcf.gz.tbi",
+        #snpvcf="vcf/{ref}" + PREFIX + ".filt.snps.all.mm2.vcf.gz",
+        #snptbi="vcf/{ref}" + PREFIX + ".filt.snps.all.mm2.vcf.gz.tbi",
+        #placementvcf="vcfplacement/" + PREFIX + ".{ref}.vcf.gz",
+        #placementidx="vcfplacement/" + PREFIX + ".{ref}.vcf.gz.tbi"
+    output:
+        DAT_DIR + "/plink/{ref}" + PREFIX + ".aln.bed",
+        DAT_DIR + "/plink/{ref}" + PREFIX + ".aln.bim",
+        DAT_DIR + "/plink/{ref}" + PREFIX + ".aln.fam",
+    params:
+        px=DAT_DIR + "/plink/{ref}" + PREFIX + ".aln"
+    shell:
+        """
+        plink --vcf {input.snpallvcf} --double-id --real-ref-alleles --make-bed --allow-extra-chr --mac 1 --biallelic-only --out {params.px}
+        """
+
+rule process_plink:
+    input:
+        bed=DAT_DIR + "/plink/{ref}" + PREFIX + ".aln.bed",
+        bim=DAT_DIR + "/plink/{ref}" + PREFIX + ".aln.bim",
+        fam=DAT_DIR + "/plink/{ref}" + PREFIX + ".aln.fam",
+    output:
+        DAT_DIR + "/plink/{ref}" + PREFIX + ".aln.pop.fam",
+        DAT_DIR + "/plink/{ref}" + PREFIX + ".aln.cluster",
+        DAT_DIR + "/plink/{ref}" + PREFIX + ".aln.imiss",
+        DAT_DIR + "/plink/{ref}" + PREFIX + ".aln.lmiss",
+        DAT_DIR + "/plink/{ref}" + PREFIX + ".aln.tv.snplist",
+    params:
+        px=DAT_DIR + "/plink/{ref}" + PREFIX + ".aln"
+    shell:
+        """
+        cat {params.px}.bim | awk '{{print "1",$1":"$4,$3,$4,$5,$6}}' | tr ' ' '\\t' > {params.px}.bim1
+        mv {params.px}.bim1 {params.px}.bim
+        cat {params.px}.fam |  awk '{{print $1,$2,$3,$4,$5,$2}}' > {params.px}.pop.fam
+        cut -f1,2,6 -d' ' {params.px}.pop.fam > {params.px}.cluster
+        plink --bfile {params.px} --missing --out {params.px}
+        awk '{{print $2,$5$6}}' {input.bim} | grep -v "CT\|TC\|GA\|AG" | cut -f1 -d' ' > {params.px}.tv.snplist
+        """
+
+
+##Create raxml tree lewis on biallelic sites 
+#rule raxml_lewis:
+#    input:
+#        snpsfasta="vcf/"+PREFIX+".{ref}.onlybiallelic.fasta",
+#    output:
+#        lewis_model="raxml_postgub/"+PREFIX + ".{ref}.raxml.bestModel",
+#        lewis_tree="raxml_postgub/"+PREFIX + ".{ref}.raxml.bestTree",
+#        bootstraps="raxml_postgub/" + PREFIX + ".{ref}.raxml.bootstraps",
+#    params:
+#        #outgroup="NEO105",
+#        #outgroup="GCF_002355215N1",
+#    threads:
+#        50
+#    shell:
+#        """
+#        raxml-ng --all --msa {input.snpsfasta} --model GTR+G+ASC_LEWIS --tree pars{{10}} --bs-trees 200 --threads {threads} --prefix raxml_postgub/{PREFIX}.{wildcards.ref} --redo
+#        raxml-ng --support --tree {output.lewis_tree} --bs-trees {output.bootstraps} --redo
+#        """
+#--outgroup {params.outgroup}
+
+rule raxml_masked:
+    input:
+        aln=DAT_DIR + "/fa/"+PREFIX+".{ref}.masked.aln", 
+    output:
+        model=DAT_DIR + "/raxml_masked/"+PREFIX + ".{ref}.raxml.bestModel",
+        tree=DAT_DIR + "/raxml_masked/"+PREFIX + ".{ref}.raxml.bestTree",
+        bootstraps=DAT_DIR + "/raxml_masked/" + PREFIX + ".{ref}.raxml.bootstraps",
+    params:
+        #outgroup="NEO105",
+        #outgroup="GCF_002355215N1",
+    threads:
+        50
+    shell:
+        """
+        raxml-ng --all --msa {input.aln} --model GTR+G --tree pars{{10}} --bs-trees 200 --threads {threads} --prefix raxml_masked/{PREFIX}.{wildcards.ref} --redo
+        raxml-ng --support --tree {output.tree} --bs-trees {output.bootstraps} --redo
+        """
+#--outgroup {params.outgroup} 
+        
+#add the sample to the tree
+        #aln="fa/"+PREFIX+".{ref}.masked.aln", 
+        #phy="vcf/"+PREFIX+".{ref}.genotyped.SNP.fasta",
+rule run_epa:
+    input:
+        #lewis_model="raxml_postgub/"+PREFIX + ".{ref}.raxml.bestModel",
+        #lewis_tree="raxml_postgub/"+PREFIX + ".{ref}.raxml.bestTree",
+        fa_lowcov=DAT_DIR + "/fa_lowcov/{sample}." + PREFIX + ".{ref}.mm2.wgaln.fa",
+        aln=DAT_DIR + "/fa/"+PREFIX+".{ref}.masked.aln", 
+        model=DAT_DIR + "/raxml_masked/"+PREFIX + ".{ref}.raxml.bestModel",
+        tree=DAT_DIR + "/raxml_masked/"+PREFIX + ".{ref}.raxml.bestTree",
+    output:
+        jplace=DAT_DIR + "/jplace/{sample}." + PREFIX + ".{ref}.epa_ng.jplace",
+    log:
+        "logs/{sample}." + PREFIX + ".{ref}.epa_ng.log"
+    threads:
+        4
+    shell:
+        """
+        mkdir -p {wildcards.sample}.{wildcards.ref}
+        epa-ng --tree {input.tree} --model {input.model} --ref-msa {input.aln} --filter-max 1000 --query {input.fa_lowcov} -T {threads} --out-dir {wildcards.sample}.{wildcards.ref} --redo
+        mv {wildcards.sample}.{wildcards.ref}/epa_result.jplace {output.jplace}
+        mv {wildcards.sample}.{wildcards.ref}/epa_info.log {log}
+        rm -rf {wildcards.sample}.{wildcards.ref}
+        """
+
+#convert into newick format for visualization in R
+rule graft_epa:
+    input:
+        jplace=DAT_DIR + "/jplace/{sample}." + PREFIX + ".{ref}.epa_ng.jplace",
+    output:
+        tree=DAT_DIR + "/jplace/{sample}." + PREFIX + ".{ref}.epa_ng.newick",
+    shell:
+        """
+        gappa examine graft --jplace-path {input.jplace} --out-dir jplace
+        """
+
+
+rule gene_coverage_modern:
+    input:
+        refgff=lambda wildcards: config["ref"][wildcards.ref]["gff"],
+        refcds=lambda wildcards: config["ref"][wildcards.ref]["gffcds"],
+        bed=DAT_DIR + "/bed/{target}." + PREFIX + ".{ref}.mm2.aligned.bed",
+    output:
+        modern_cov=DAT_DIR + "/gff_bed/{target}." + PREFIX + ".{ref}.coverage.gff.bed",
+        modern_cds=DAT_DIR + "/gff_bed/modern/{target}." + PREFIX + ".{ref}.coverage.gff.cds.bed",
+    shell:
+        """
+        bedtools coverage -a {input.refgff} -b {input.bed} | awk -F \"\\t\" -v OFS=\"\\t\" \'{{print $5,$7,$2,$3,$11,\"{wildcards.target}\"}}\' > {output.modern_cov}
+        bedtools coverage -a {input.refcds} -b {input.bed} | awk -F \"\\t\" -v OFS=\"\\t\" \'{{print $4,$5,$2,$3,$9,\"{wildcards.target}\"}}\' > {output.modern_cds}
+        """
+rule gene_coverage_highcov:
+    input:
+        refgff=lambda wildcards: config["ref"][wildcards.ref]["gff"],
+        refcds=lambda wildcards: config["ref"][wildcards.ref]["gffcds"],
+        bam=(lambda wildcards: magstable.fq[wildcards.mag]),
+    output:
+        highcov_cov=DAT_DIR + "/gff_bed/{mag}." + PREFIX + ".{ref}.coverage.gff.bed",
+        highcov_cds=DAT_DIR + "/gff_bed/highcov/{mag}." + PREFIX + ".{ref}.coverage.gff.cds.bed",
+    shell:
+        """
+        bedtools coverage -a {input.refgff} -b {input.bam} | awk -F \"\\t\" -v OFS=\"\\t\" \'{{print $5,$7,$2,$3,$11,\"{wildcards.mag}\"}}\' > {output.highcov_cov}
+        bedtools coverage -a {input.refcds} -b {input.bam} | awk -F \"\\t\" -v OFS=\"\\t\" \'{{print $4,$5,$2,$3,$9,\"{wildcards.mag}\"}}\' > {output.highcov_cds}
+        """
+
+#rule gene_coverage_midcov:
+#    input:
+#        refgff=lambda wildcards: config["ref"][wildcards.ref]["gff"],
+#        refcds=lambda wildcards: config["ref"][wildcards.ref]["gffcds"],
+#        bam=(lambda wildcards: mid_cov.fa[wildcards.midcov]),
+#    output:
+#        midcov_cov="gff_bed/{midcov}." + PREFIX + ".{ref}.coverage.gff.bed",
+#        midcov_cds="gff_bed/midcov/{midcov}." + PREFIX + ".{ref}.coverage.gff.cds.bed",
+#    shell:
+#        """
+#        bedtools coverage -a {input.refgff} -b {input.bam} | awk -F \"\\t\" -v OFS=\"\\t\" \'{{print $5,$7,$2,$3,$11,\"{wildcards.midcov}\"}}\' > {output.midcov_cov}
+#        bedtools coverage -a {input.refcds} -b {input.bam} | awk -F \"\\t\" -v OFS=\"\\t\" \'{{print $4,$5,$2,$3,$9,\"{wildcards.midcov}\"}}\' > {output.midcov_cds}
+#        """
+
+rule gene_coverage_lowcov:
+    input:
+        refgff=lambda wildcards: config["ref"][wildcards.ref]["gff"],
+        refcds=lambda wildcards: config["ref"][wildcards.ref]["gffcds"],
+        bam=(lambda wildcards: unit_df.fa[wildcards.sample]),
+    output:
+        lowcov_cov=DAT_DIR + "/gff_bed/{sample}." + PREFIX + ".{ref}.coverage.gff.bed",
+        lowcov_cds=DAT_DIR + "/gff_bed/lowcov/{sample}." + PREFIX + ".{ref}.coverage.gff.cds.bed",
+    shell:
+        """
+        bedtools coverage -a {input.refgff} -b {input.bam} | awk -F \"\\t\" -v OFS=\"\\t\" \'{{print $5,$7,$2,$3,$11,\"{wildcards.sample}\"}}\' > {output.lowcov_cov}
+        bedtools coverage -a {input.refcds} -b {input.bam} | awk -F \"\\t\" -v OFS=\"\\t\" \'{{print $4,$5,$2,$3,$9,\"{wildcards.sample}\"}}\' > {output.lowcov_cds}
+        """
+
+rule gene_coverage_sum:
+    input:
+        DAT_DIR + "/plink/{ref}" + PREFIX + ".aln.pop.fam",
+        DAT_DIR + "/plink/{ref}" + PREFIX + ".aln.cluster",
+        DAT_DIR + "/plink/{ref}" + PREFIX + ".aln.imiss",
+        DAT_DIR + "/plink/{ref}" + PREFIX + ".aln.lmiss",
+        DAT_DIR + "/plink/{ref}" + PREFIX + ".aln.tv.snplist",
+        modern_cov=expand(DAT_DIR + "/gff_bed/{target}." + PREFIX + ".{{ref}}.coverage.gff.bed", target=SAMPLENAMES),
+        lowcov_cov=expand(DAT_DIR + "/gff_bed/{sample}." + PREFIX + ".{{ref}}.coverage.gff.bed",sample=samples),
+        #midcov_cov=expand(DAT_DIR + "/gff_bed/{midcov}." + PREFIX + ".{{ref}}.coverage.gff.bed",midcov=MIDCOVSAMPLES),
+        highcov_cov=expand(DAT_DIR + "/gff_bed/{mag}." + PREFIX + ".{{ref}}.coverage.gff.bed",mag=MAGSNAMES),
+        modern_cds=expand(DAT_DIR + "/gff_bed/modern/{target}." + PREFIX + ".{{ref}}.coverage.gff.cds.bed", target=SAMPLENAMES),
+        lowcov_cds=expand(DAT_DIR + "/gff_bed/lowcov/{sample}." + PREFIX + ".{{ref}}.coverage.gff.cds.bed",sample=samples),
+        #midcov_cds=expand(DAT_DIR + "/gff_bed/midcov/{midcov}." + PREFIX + ".{{ref}}.coverage.gff.cds.bed",midcov=MIDCOVSAMPLES),
+        highcov_cds=expand(DAT_DIR + "/gff_bed/highcov/{mag}." + PREFIX + ".{{ref}}.coverage.gff.cds.bed",mag=MAGSNAMES),
+        tree=expand(DAT_DIR + "/jplace/{sample}." + PREFIX + ".{{ref}}.epa_ng.newick",sample=samples),
+    output:
+        gene_cov=DAT_DIR + "/gff_bed/{ref}." + PREFIX + ".concat_gene_cov.tsv",
+        cds_cov=DAT_DIR + "/gff_bed/{ref}." + PREFIX + ".concat_cds_cov.tsv",
+    shell:
+        """
+        cat {input.modern_cov} {input.lowcov_cov} {input.highcov_cov} > {output.gene_cov}
+        cat {input.modern_cds} {input.lowcov_cds} {input.highcov_cds} > {output.cds_cov}
+        """

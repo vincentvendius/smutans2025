@@ -1,0 +1,20 @@
+mamba install -y -c bioconda mcl
+mamba install -y -c bioconda muscle=3.8.1551
+mamba install -y -c bioconda hmmer
+mamba install -y -c bioconda blast
+mamba install -y -c bioconda megahit
+mamba install -y -c bioconda spades
+mamba install -y -c bioconda bowtie2 tbb=2019.8
+mamba install -y -c bioconda bwa
+mamba install -y -c bioconda centrifuge
+mamba install -y -c bioconda trimal
+mamba install -y -c bioconda iqtree
+mamba install -y -c bioconda trnascan-se
+mamba install -y -c bioconda r-base
+mamba install -y -c bioconda r-stringi
+mamba install -y -c bioconda r-tidyverse
+mamba install -y -c bioconda r-magrittr
+mamba install -y -c bioconda r-optparse
+mamba install -y -c bioconda bioconductor-qvalue
+mamba install -y -c bioconda fasttree
+mamba install -y -c bioconda vmatch

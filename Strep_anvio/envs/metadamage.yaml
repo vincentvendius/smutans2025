@@ -1,0 +1,17 @@
+name: metaDMG
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python==3.9
+  - pip
+  - pip:
+    - metaDMG[all]
+    - logger-tt==1.7.0
+  - htslib==1.15
+  - cxx-compiler
+  - c-compiler
+  - eigen
+  - gcc_linux-64
+  - samtools

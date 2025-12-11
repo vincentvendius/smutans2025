@@ -1,0 +1,36 @@
+#prefix: cluster_3_mutans
+#prefix: strep_mutans_v2_all_snps
+#prefix: strep_mutans_v3_all_snps
+prefix: strep_mutans_asm5_4
+ref:
+  GCF_009738105.1_ASM973810v1:
+    fa:
+      /maps/projects/lundbeck/people/dsw670/projects/strep/mutans/data/ref/GCF_009738105.1/GCF_009738105.1_ASM973810v1_genomic.fasta
+    genome:
+      /maps/projects/lundbeck/people/dsw670/projects/strep/mutans/data/ref/GCF_009738105.1/GCF_009738105.1_ASM973810v1_genomic.genome
+    gff:
+      /projects/sikora/people/xvh856/projects/pipelines/Strep_Phylogenetics_05-23/gffolder/genomic_filter.gff
+    gffcds:
+      /projects/sikora/people/xvh856/projects/pipelines/Strep_Phylogenetics_05-23/gffolder/genomic_cds.gff
+    contig:
+      NZ_CP044221.1
+target:
+  accessions:
+          # genomes_clade3
+    genomes_noDup
+    #mags: mags2
+mags: mags_dating
+min_l:
+  10000
+data_dir:
+  /projects/sikora/people/xvh856/projects/pipelines/Strep_Phylogenetics_05-23/data
+tmp_dir:
+  /projects/sikora/people/xvh856/projects/pipelines/Strep_Phylogenetics_05-23/tmp
+units:
+  mags_lowcoverage.tsv
+midcoverage:
+  mags_midcoverage.tsv
+MQ: 20
+mode: ""
+asm: asm5
+max_miss_core: 0.01

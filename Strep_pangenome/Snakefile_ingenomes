@@ -1,0 +1,251 @@
+configfile:"config.yaml"
+workdir:"/science/willerslev/users-shared/science-snm-willerslev-xvh856/pipelines/Strep_pangenome/"
+import pandas as pd
+import os
+
+#file references
+PREFIX=config["prefix"]
+KRAKENPATH=config["krakenpath"]
+KRAKENSUFFIX=config["krakensuffix"]
+BAM_DIR=config["bam_dir"]
+SAMPLEDATA= pd.read_table(config["sampledata"], comment="#")
+TMPPATH=config["tmppath"]
+BINNING_ALGO=config["binning_algo"]
+COLLECTION_NAME=config["collection_name"]
+ASSEMBLY_DIR=config["assembly_dir"]
+REF_DIR=config["ref_dir"]
+
+#define sample set
+SET=["GCF_000007465.2"]
+SAMPLESET=SAMPLEDATA.loc[SAMPLEDATA["assemblyId"].isin(SET)].set_index(["sampleId"],drop=False)
+SAMPLESET=SAMPLESET.loc[SAMPLESET["coverageP"]>0.75]
+SAMPLES = SAMPLESET.index.unique()
+
+def sample_dir(wildcards):
+    return expand(ASSEMBLY_DIR + PREFIX + "/samples/{sample}/profile/PROFILE.db",sample=SAMPLES,allow_missing=True)
+
+
+def get_fq(wildcards):
+    return SAMPLESET.loc[(wildcards.sample), "fq"]
+
+rule all:
+    input:
+         sample_dir
+
+#change names of consensus genomes from Strep_mapping
+rule fix_names_one:
+    input:
+         REF_DIR + "{sample}/GCF_000007465.2.streptococcus.fa"
+    output:
+         REF_DIR + "{sample}/{sample}_GCF_000007465.2.streptococcus.fa"
+    shell:
+         "sed 's/>/>{wildcards.sample}_/g' {input} > {output}" 
+
+#collect reference contigs into one file
+rule collect_refs:
+    input:
+        expand(REF_DIR + "{sample}/{sample}_GCF_000007465.2.streptococcus.fa",sample=SAMPLES)
+    output:
+        ASSEMBLY_DIR  + PREFIX + "/refs.fa"
+    shell:
+        "cat {input} > {output}"
+
+#change contig names to fit with anvio
+rule fix_names_two:
+    input:
+        ASSEMBLY_DIR + PREFIX + "/refs.fa"
+    output:
+        ASSEMBLY_DIR + PREFIX + "/fxd.refs.fa"
+    shell:
+       "sed 's/\s[^\\n]*//' {input} > {output}"
+
+
+#create an anvio contigs database from the reference contigs which includes relevant metadata
+rule contig_database:
+    input:
+        ASSEMBLY_DIR + PREFIX + "/fxd.refs.fa"
+    output:
+        cdb=ASSEMBLY_DIR + PREFIX + "/refs.db"
+    threads: 10
+    params:
+        tmp=ASSEMBLY_DIR + "tmp"
+    shell:
+        """
+        rm -rf {params.tmp}
+        mkdir {params.tmp}
+        anvi-gen-contigs-database -f {input} -o {output.cdb} -n \"{PREFIX} ref genomes\" --num-threads {threads}
+        anvi-run-hmms -c {output.cdb} --num-threads {threads}
+        anvi-run-ncbi-cogs -c {output.cdb} --temporary-dir-path {params.tmp} --num-threads {threads}
+        anvi-run-pfams -c refs.db --num-threads {threads} 
+        rm {params.tmp}/*
+        rmdir {params.tmp}
+        """
+
+
+#recruit and profile reads from metagenomes
+#once a contig database is completed it is time to align the samples against the contigs
+#we will use bowtie2, which requires us to index the contigs first
+rule index:
+    input:
+        cdb=ASSEMBLY_DIR + PREFIX + "/refs.db",
+        fa=ASSEMBLY_DIR + PREFIX + "/fxd.refs.fa"
+    output:
+        multiext(ASSEMBLY_DIR + PREFIX + "/ref_index/" + PREFIX,".1.bt2",".2.bt2",".3.bt2",".4.bt2",".rev.1.bt2",".rev.2.bt2")
+    params:
+        ref_name=ASSEMBLY_DIR + PREFIX + "/ref_index/" + PREFIX
+    threads:80
+    shell:
+        "bowtie2-build  --threads {threads} {input.fa} {params.ref_name}"
+
+
+#get the sample files corresponding to the consensus genomes were using as a reference, and take out human reads
+rule readfiles:
+    input:
+        fqpath=get_fq,
+        kraken_class=KRAKENPATH + "{sample}" + KRAKENSUFFIX,
+    output:
+        no_human=ASSEMBLY_DIR + PREFIX + "/reads/{sample}_no_human.trim.fq.gz",
+    shell:
+        "zgrep -P \"\\t1000289607\\t\" {input.kraken_class} | cut -f2 | seqkit grep -f - -v {input.fqpath} -o {output.no_human}"
+
+
+#Alignment of sample reads against sample set contig database
+rule align:
+    input:
+        query=ASSEMBLY_DIR + PREFIX + "/reads/{sample}_no_human.trim.fq.gz",
+        ref = multiext(ASSEMBLY_DIR + PREFIX + "/ref_index/" + PREFIX,".1.bt2",".2.bt2",".3.bt2",".4.bt2",".rev.1.bt2",".rev.2.bt2")
+    params:
+        ref_name=ASSEMBLY_DIR + PREFIX + "/ref_index/" + PREFIX
+    output:
+        bam=ASSEMBLY_DIR + PREFIX + "/samples/{sample}/bam",
+        metrics=ASSEMBLY_DIR + PREFIX + "/samples/{sample}/picard_metrics.txt",
+    threads: 40
+    shell:
+        """
+        bowtie2 -D 20 -R 3 -N 1 -L 20 -i S,1,0.50 -p {threads} -x {params.ref_name} -U {input.query} | samtools view -F4 -bh > {output.bam}.raw
+        samtools sort -@{threads} {output.bam}.raw > {output.bam}.raw.srt
+        java -Xmx16g -XX:ParallelGCThreads={threads} -jar /willerslev/software/picard/picard.jar MarkDuplicates I={output.bam}.raw.srt M={output.metrics} O={output.bam}.nodup
+        samtools index {output.bam}.nodup
+        samtools view -q1 -F 0x400 -bh {output.bam}.nodup  > {output.bam}
+        samtools index {output.bam}
+        """
+
+
+#profile the bam files
+rule sample_profile:
+    input:
+        cdb=ASSEMBLY_DIR + PREFIX + "/refs.db",
+        bam=ASSEMBLY_DIR + PREFIX + "/samples/{sample}/bam"
+    output:
+        profile=ASSEMBLY_DIR + PREFIX + "/samples/{sample}/profile/PROFILE.db"
+    params:
+        profile=ASSEMBLY_DIR + PREFIX + "/samples/{sample}/profile/",
+    threads: 40
+    shell:
+        """
+        rm -rf {params.profile} 
+        anvi-profile -c {input.cdb} -i {input.bam} --num-threads {threads} -o {params.profile} --sample-name {wildcards.sample} --min-coverage-for-variability 5 --cluster-contigs
+        """
+
+#merge the sample profiles
+rule profile_merge:
+    input:
+        cdb=ASSEMBLY_DIR + PREFIX + "/refs.db",
+        profile=expand(ASSEMBLY_DIR + PREFIX + "/samples/{sample}/profile/PROFILE.db",sample=SAMPLES,allow_missing=True)
+    output:
+        mrgprofile=ASSEMBLY_DIR + PREFIX + "/MERGED-PROFILE/PROFILE.db"
+    params:
+        mrgprofile=ASSEMBLY_DIR + PREFIX + "/MERGED-PROFILE"
+    shell:
+        """
+        rmdir {params.mrgprofile}
+        anvi-merge {input.profile} -o {params.mrgprofile} -c {input.cdb} 
+        """
+
+
+#Since all my references just have one contig, i can make a collections file that just refers the name of the reference to the name of the contig, from the name of the contig
+rule get_bins:
+   input: 
+       cdb=ASSEMBLY_DIR + PREFIX + "/refs.db",
+   output:
+       collection=ASSEMBLY_DIR + PREFIX + "/collection.txt",
+   shell:
+       """
+       for split_name in `sqlite3 {input.cdb} 'select split from splits_basic_info;'`
+       do
+	    # in this loop $split_name looks like this AS9601-00000001_split_00001, form which
+	    # we can extract the genome name the split belongs to:
+	    GENOME=`echo $split_name | awk 'BEGIN{{FS=".[[:digit:]]_split"}}{{print $1}}'`
+
+	    # print it out with a TAB character
+	    echo -e "$split_name\\t$GENOME"
+       done > {output.collection} 
+       """
+
+
+#from my contig database of aff the references, the mapping merged profile, and the file linking contigs with reference names, i can create a summarize of my reference database
+rule summarize:
+    input:
+        cdb=ASSEMBLY_DIR + PREFIX + "/refs.db",
+        collection=ASSEMBLY_DIR + PREFIX + "/collection.txt",
+        mrgprofile=ASSEMBLY_DIR + PREFIX + "/MERGED-PROFILE/PROFILE.db"
+    params:
+        summary=ASSEMBLY_DIR + PREFIX + "/summary",
+    output:
+        summary=ASSEMBLY_DIR + PREFIX + "/summary/bins_summary.txt",
+    shell:
+        """
+        rmdir {params.summary}
+        anvi-import-collection {input.collection} -c {input.cdb} -p {input.mrgprofile} -C {PREFIX}
+        anvi-summarize -c {input.cdb} -p {input.mrgprofile} -C {PREFIX} --init-gene-coverages -o {params.summary}
+        """
+
+
+#This is a file with columns: name of reference, bin id (same as reference name), collection id: {PREFIX} path to merged profile db, and path to contigs.db
+#The file is sort of a formality to make software work on this workflow, which is why it looks very simple and dull and doesnt tell much usefull
+rule internal_genomes:
+    input:
+        mrgprofile=ASSEMBLY_DIR + PREFIX + "/MERGED-PROFILE/PROFILE.db",
+        collection=ASSEMBLY_DIR + PREFIX + "/collection.txt",
+    output:
+        ingenomes=ASSEMBLY_DIR + PREFIX + "/internal-genomes.txt" 
+    params:
+        intermediary=ASSEMBLY_DIR + PREFIX + "/collectionnames.txt"
+    shell:
+        """
+        cut -f2 {input.collection} | uniq > {params.intermediary}
+	paste {params.intermediary} {params.intermediary} > {output.ingenomes}
+	sed -i 's/[a-zA-Z]*$/\\t{PREFIX}/' {output.ingenomes}
+	sed -i 's/{PREFIX}/{PREFIX}\\t\\.\\.\\/{PREFIX}\/MERGED-PROFILE\/PROFILE\.db/' {output.ingenomes}
+	sed -i 's/db/db\\trefs\.db/' {output.ingenomes}
+        sed -i '1i\\name\\tbin_id\\tcollection_id\\tprofile_db_path\\tcontigs_db_path' {output.ingenomes}
+        """
+
+
+#We generate a genomes storage for the pangenomic analysis
+rule genome_storage:
+     input:
+        summary=ASSEMBLY_DIR + PREFIX + "/summary/bins_summary.txt",
+        ingenomes=ASSEMBLY_DIR + PREFIX + "/internal-genomes.txt" 
+     output:
+        genstor=ASSEMBLY_DIR + PREFIX + "/PAN-GENOMES.db"
+     shell:
+        "anvi-gen-genomes-storage -i {input.ingenomes} -o {output.genstor}"
+
+#Computation of pan genome from the internal storage of genomes
+rule pangenome:
+    input:
+       genstor=ASSEMBLY_DIR + PREFIX + "/PAN-GENOMES.db",
+    output:
+       pangen=ASSEMBLY_DIR + PREFIX + "/" + PREFIX + "/" + PREFIX + "-PAN.db" 
+    params:
+       pangen=ASSEMBLY_DIR + PREFIX + "/" + PREFIX
+    threads: 40 
+    shell:
+       "anvi-pan-genome -g {input} --use-ncbi-blast --minbit 0.5 --mcl-inflation 2 --project-name {PREFIX} --num-threads {threads} -o {params.pangen}"
+
+#now to examine the pangenome!
+"anvi-display-pan -p {PREFIX}-PAN.db -g PAN-GENOMES.db"
+
+
+

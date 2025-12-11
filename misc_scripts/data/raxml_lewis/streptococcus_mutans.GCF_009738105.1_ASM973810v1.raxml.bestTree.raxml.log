@@ -1,0 +1,35 @@
+
+RAxML-NG v. 1.2.0 released on 09.05.2023 by The Exelixis Lab.
+Developed by: Alexey M. Kozlov and Alexandros Stamatakis.
+Contributors: Diego Darriba, Tomas Flouri, Benoit Morel, Sarah Lutteropp, Ben Bettisworth, Julia Haag, Anastasis Togkousidis.
+Latest version: https://github.com/amkozlov/raxml-ng
+Questions/problems/suggestions? Please visit: https://groups.google.com/forum/#!forum/raxml
+
+System: Intel(R) Xeon(R) Gold 6248R CPU @ 3.00GHz, 48 cores, 1007 GB RAM
+
+RAxML-NG was called at 07-Aug-2023 12:34:41 as follows:
+
+raxml-ng --support --tree raxml_LEWIS/streptococcus_mutans.GCF_009738105.1_ASM973810v1.raxml.bestTree --bs-trees raxml_LEWIS/streptococcus_mutans.GCF_009738105.1_ASM973810v1.raxml.bootstraps --outgroup GCF_002355215N1
+
+Analysis options:
+  run mode: Compute bipartition support (Felsenstein Bootstrap)
+  start tree(s): user
+  outgroup taxa: GCF_002355215N1
+  random seed: 1691404481
+  SIMD kernels: AVX2
+  parallelization: coarse-grained (auto), PTHREADS (auto)
+
+Reading reference tree from file: raxml_LEWIS/streptococcus_mutans.GCF_009738105.1_ASM973810v1.raxml.bestTree
+Reference tree size: 291
+
+Reading bootstrap trees from file: raxml_LEWIS/streptococcus_mutans.GCF_009738105.1_ASM973810v1.raxml.bootstraps
+Loaded 200 trees with 291 taxa.
+
+Best ML tree with Felsenstein bootstrap (FBP) support values saved to: /maps/projects/sikora/people/xvh856/projects/pipelines/Strep_Phylogenetics_05-23/raxml_LEWIS/streptococcus_mutans.GCF_009738105.1_ASM973810v1.raxml.bestTree.raxml.support
+
+Execution log saved to: /maps/projects/sikora/people/xvh856/projects/pipelines/Strep_Phylogenetics_05-23/raxml_LEWIS/streptococcus_mutans.GCF_009738105.1_ASM973810v1.raxml.bestTree.raxml.log
+
+Analysis started: 07-Aug-2023 12:34:41 / finished: 07-Aug-2023 12:34:41
+
+Elapsed time: 0.117 seconds
+

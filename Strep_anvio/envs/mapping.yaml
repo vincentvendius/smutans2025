@@ -1,0 +1,23 @@
+channels:
+  - bioconda
+  - conda-forge
+dependencies:
+  - "sqlite>=3.31.1"
+  - python=3.6
+  - prodigal
+  - mcl
+  - muscle=3.8.1551
+  - hmmer
+  - diamond
+  - blast
+  - megahit
+  - spades
+  - bowtie2
+  - bwa
+  - samtools=1.9
+  - centrifuge
+  - trimal
+  - iqtree
+  - trnascan-se
+  - fasttree
+  - vmatch

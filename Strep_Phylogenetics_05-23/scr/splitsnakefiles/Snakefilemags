@@ -1,0 +1,148 @@
+## --------------------------------------------------------------------------------
+## params from configfilr
+import pandas as pd
+configfile:"/projects/sikora/people/xvh856/projects/pipelines/Strep_Phylogenetics_05-23/config.yaml"
+workdir:"/projects/sikora/people/xvh856/projects/pipelines/Strep_Phylogenetics_05-23/"
+
+PREFIX = config["prefix"] ## prefix
+TMP_DIR = config["tmp_dir"] ## path for temp files
+
+MAGSREAD=pd.read_table(config["mags"],comment="#",sep="\t",lineterminator="\n")
+MAGSTABLE=MAGSREAD.set_index(["sampleId"],drop=False)
+MAGSNAMES=MAGSTABLE.index.unique()
+
+bed_all=expand("bed/{mag}." + PREFIX + ".{ref}.mm2.not_aligned.bed",mag=MAGSNAMES,ref=config["ref"])
+vcf_all=expand("vcf/" + PREFIX + ".{ref}.genotyped.SNP.fasta",ref=config["ref"])
+vcf_test= expand("vcf/" + PREFIX + ".{ref}.mag.snps.{ext}", ref=config["ref"], ext=["vcf.gz", "vcf.gz.tbi"])
+
+## --------------------------------------------------------------------------------
+## targets
+
+rule all:
+    input:
+        vcf_test,
+        #vcf_all,
+        tree=expand("raxml/"+PREFIX + ".{ref}.raxml.bestTree",ref=config["ref"]),
+
+## --------------------------------------------------------------------------------
+## rules
+
+rule get_vcf_mags:
+    input:
+        bam=(lambda wildcards: MAGSTABLE.fq[wildcards.mag]),
+        ref=lambda wildcards: config["ref"][wildcards.ref]["fa"],
+    output:
+        vcf="vcf/{mag}." + PREFIX + ".{ref}.mm2.vcf.gz",
+        tbi="vcf/{mag}." + PREFIX + ".{ref}.mm2.vcf.gz.tbi",
+        bed="bed/{mag}." + PREFIX + ".{ref}.bed",
+    shell:
+        """
+        bcftools mpileup -q20 -a FORMAT/AD,FORMAT/DP -f {input.ref} {input.bam} -Ou | bcftools call --ploidy 1 -m -A -a FORMAT/GQ -Oz | bcftools view -Oz -e 'ILEN > 0|FORMAT/DP<4' > {output.vcf}
+        bcftools index -t {output.vcf}
+        bedtools bamtobed -i {input.bam} | cut -f1,2,3 > {output.bed}
+        """
+
+#rule align_vcfs:
+#    input:
+#        vcf="vcf/{mag}." + PREFIX + ".{ref}.mm2.vcf.gz",
+#        tbi="vcf/{mag}." + PREFIX + ".{ref}.mm2.vcf.gz.tbi",
+#        bed="bed/{mag}." + PREFIX + ".{ref}.bed",
+#        genome=lambda wildcards: config["ref"][wildcards.ref]["genome"],
+#        ref=lambda wildcards: config["ref"][wildcards.ref]["fa"],
+#    output:
+#        fixedbed="bed/{mag}." + PREFIX + ".{ref}.fixed.bed",
+#        fa="fa/{mag}." + PREFIX + ".{ref}.fa",
+#    params:
+#        contig=lambda wildcards: config["ref"][wildcards.ref]["contig"],
+#    shell:
+#        """
+#        bedtools complement -i {input.bed} -g {input.genome} | grep {params.contig} > {output.fixedbed}
+#        samtools faidx {input.ref} {params.contig} | bcftools consensus -m {output.fixedbed} --mark-del N {input.vcf} | perl -p -e 's/>.*/>{wildcards.mag}/' > {output.fa}
+#        """ 
+#
+#
+#rule combine_fa:
+#    input:
+#        fas=expand("fa/{mag}." + PREFIX + ".{ref}.fa", mag=MAGSNAMES,ref=config["ref"]),
+#        ref=lambda wildcards: config["ref"][wildcards.ref]["fa"],
+#    output:
+#        facomb="fa/" + PREFIX + ".{ref}.mags.all.fa"
+#    params:
+#        contig=lambda wildcards: config["ref"][wildcards.ref]["contig"],
+#    shell:
+#        """
+#        samtools faidx {input.ref} {params.contig} | cat - {input.fas} > {output.facomb}
+#        """
+#
+#rule get_vcf_snps:
+#    input:
+#        fa="fa/" + PREFIX + ".{ref}.mags.all.fa"
+#    output:
+#        vcf="vcf/" + PREFIX + ".{ref}.mag.snps.vcf.gz",
+#        tbi="vcf/" + PREFIX + ".{ref}.mag.snps.vcf.gz.tbi"
+#    params:
+#        contig=lambda wildcards: config["ref"][wildcards.ref]["contig"],
+#    shell:
+#        """
+#        snp-sites -b -v {input.fa} | python fix_vcf_snpsites.py -r {params.contig} | bcftools view -a -Oz -s ^{params.contig} > {output.vcf}
+#        bcftools index -t {output.vcf}
+#        """
+
+rule merge_vcfs:
+    input:
+        vcf=expand("vcf/{mag}." + PREFIX + ".{ref}.mm2.vcf.gz",mag=MAGSNAMES,ref=config["ref"]),
+        tbi=expand("vcf/{mag}." + PREFIX + ".{ref}.mm2.vcf.gz.tbi",mag=MAGSNAMES,ref=config["ref"]),
+        refvcf="vcf/" + PREFIX + ".{ref}.mm2.wgaln.snps.vcf.gz",
+        reftbi="vcf/" + PREFIX + ".{ref}.mm2.wgaln.snps.vcf.gz.tbi",
+    output:
+        combinedvcf="vcf/" + PREFIX + ".{ref}.all.mm2.snps.vcf.gz",
+        combinedtbi="vcf/" + PREFIX + ".{ref}.all.mm2.snps.vcf.gz.tbi",
+    shell:
+        """
+        bcftools merge {input.refvcf} {input.vcf} -Oz > {output.combinedvcf}
+        bcftools index -t {output.combinedvcf} 
+        """
+
+rule filter_vcf:
+    input:
+        combinedvcf="vcf/" + PREFIX + ".{ref}.all.mm2.snps.vcf.gz",
+        combinedtbi="vcf/" + PREFIX + ".{ref}.all.mm2.snps.vcf.gz.tbi",
+    output:
+        filtvcf="vcf/{ref}" + PREFIX + ".filt.all.mm2.snps.vcf.gz",
+        filttbi="vcf/{ref}" + PREFIX + ".filt.all.mm2.snps.vcf.gz.tbi",
+    shell:
+        """
+        bcftools view -Oz -m 2 -M 2 -e 'MAC=0|F_MISS>0' -v snps {input.combinedvcf} > {output.filtvcf}
+        bcftools index -t {output.filtvcf}
+        """
+
+rule generate_fasta:
+    input:
+        filtvcf="vcf/{ref}" + PREFIX + ".filt.all.mm2.snps.vcf.gz",
+        filttbi="vcf/{ref}" + PREFIX + ".filt.all.mm2.snps.vcf.gz.tbi",
+    output:
+        "vcf/"+PREFIX+".{ref}.genotyped.SNP.fasta",
+    shell:
+    	"""
+    	for sample in $(bcftools query -l {input.filtvcf})
+            do
+                bcftools view -s $sample {input.filtvcf}|bcftools query -f'[%TGT]'| (echo -e ">"$sample; cat -) | seqtk seq -l60 | perl -p -e 's/\./N/g'| perl -p -e 's/\*/-/g' >> {output}
+            done
+        """
+
+rule raxml:
+    input:
+        phy="vcf/"+PREFIX+".{ref}.genotyped.SNP.fasta",
+    output:
+        tree="raxml/"+PREFIX + ".{ref}.raxml.bestTree",
+    threads:
+        32
+    shell:
+        """
+        raxml-ng --msa {input.phy} --model GTR+G --threads {threads} --prefix raxml/{PREFIX}.{wildcards.ref} --outgroup GCF_002355215N1 --redo --bs-trees bootstrapfile
+        """
+#convert into multi fasta again
+#RAMLx
+
+#make blink file from vcf file to do a neighbour joining tree
+#raxml --search 1

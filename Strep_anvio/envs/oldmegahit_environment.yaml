@@ -1,0 +1,6 @@
+name: Strep_anvio
+channels:
+  - bioconda
+  - conda-forge
+dependencies:
+  - megahit==1.1.3

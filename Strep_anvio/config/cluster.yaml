@@ -1,0 +1,63 @@
+__default__:
+  time: 1000:00:00
+  nodes: 1
+  ntasks_per_node: 1
+  cpus_per_task: 1
+  memory: 100G
+
+read_assembly_antonio:
+  time: 1000:00:00
+  nodes: 1
+  ntasks_per_node: 1
+  cpus_per_task: 30
+  memory: 1000G
+
+read_assembly_meta_sensitive:
+  time: 1000:00:00
+  nodes: 1
+  ntasks_per_node: 1
+  cpus_per_task: 30
+  memory: 1000G
+
+read_assembly_old:
+  time: 1000:00:00
+  nodes: 1
+  ntasks_per_node: 1
+  cpus_per_task: 30
+  memory: 1000G
+
+contig_db:
+  time: 1000:00:00
+  nodes: 1
+  ntasks_per_node: 1
+  cpus_per_task: 30
+  memory: 100G
+
+mapping:
+  time: 1000:00:00
+  nodes: 1
+  ntasks_per_node: 1
+  cpus_per_task: 30
+  memory: 100G
+
+assembly_db:
+  time: 1000:00:00
+  nodes: 1
+  ntasks_per_node: 1
+  cpus_per_task: 30
+  memory: 100G
+
+pangenome:
+  time: 1000:00:00
+  nodes: 1
+  ntasks_per_node: 1
+  cpus_per_task: 20
+  memory: 100G
+
+metadmg:
+  time: 1000:00:00
+  nodes: 1
+  ntasks_per_node: 1
+  cpus_per_task: 40
+  memory: 100G
+

@@ -1,0 +1,15 @@
+fq	name
+/willerslev/scratch/krakenuniq-db/hum_microbe/library/bacteria/Chromosome/Streptococcus_mutans_strain_KCOM_1054__ChDC_YM3-tax1309-GCF_002155285.1_ASM215528v1_genomic-dustmasked.fna	REF1
+/willerslev/scratch/krakenuniq-db/hum_microbe/library/bacteria/Complete_Genome/Streptococcus_mutans_strain_NCTC10920-tax1309-GCF_900638045.1_55312_G01_genomic-dustmasked.fna	REF2
+/willerslev/scratch/krakenuniq-db/hum_microbe/library/bacteria/Complete_Genome/Streptococcus_mutans_strain_NG8-tax1309-GCF_001558215.1_ASM155821v1_genomic-dustmasked.fna	REF3
+/willerslev/scratch/krakenuniq-db/hum_microbe/library/bacteria/Complete_Genome/Streptococcus_mutans_strain_LAR01-tax1309-GCF_002995555.1_ASM299555v1_genomic-dustmasked.fna	REF4
+/willerslev/scratch/krakenuniq-db/hum_microbe/library/bacteria/Complete_Genome/Streptococcus_mutans_strain_NCTC10832-tax1309-GCF_900636835.1_44503_F02_genomic-dustmasked.fna	REF5
+/willerslev/scratch/krakenuniq-db/hum_microbe/library/bacteria/Complete_Genome/Streptococcus_mutans_LJ23-tax1155071-GCF_000284575.1_ASM28457v1_genomic-dustmasked.fna	REF6
+/willerslev/scratch/krakenuniq-db/hum_microbe/library/bacteria/Complete_Genome/Streptococcus_mutans_NN2025-tax511691-GCF_000091645.1_ASM9164v1_genomic-dustmasked.fna	REF7
+/willerslev/scratch/krakenuniq-db/hum_microbe/library/bacteria/Complete_Genome/Streptococcus_mutans_strain_NCTC10449-tax1309-GCF_900475095.1_42197_E01_genomic-dustmasked.fna	REF8
+/willerslev/scratch/krakenuniq-db/hum_microbe/library/bacteria/Complete_Genome/Streptococcus_mutans_UA159-tax210007-GCF_000007465.2_ASM746v2_genomic-dustmasked.fna	REF9
+/willerslev/scratch/krakenuniq-db/hum_microbe/library/bacteria/Complete_Genome/Streptococcus_mutans_GS_5-tax1198676-GCF_000271865.1_ASM27186v1_genomic-dustmasked.fna	REF10
+/science/willerslev/users-shared/science-snm-willerslev-xvh856/MAGtries/NEO137-OLDMEGA/summary-metabat2_test/bin_by_bin/bin_13/bin_13-contigs.fa	NEO137
+/science/willerslev/users-shared/science-snm-willerslev-xvh856/MAGtries/VK63-NONHUMAN-ANTONIOMEGAHIT/summary-concoct-2refine/bin_by_bin/Streptococcus_mutans/Streptococcus_mutans-contigs.fa	VK63
+/science/willerslev/users-shared/science-snm-willerslev-xvh856/MAGtries/NEO938-NONHUMAN-ANTONIOMEGAHIT/summary-concoct-refined2/bin_by_bin/Streptococcus_mutans/Streptococcus_mutans-contigs.fa	NEO938
+/science/willerslev/users-shared/science-snm-willerslev-xvh856/MAGtries/NEO105-NONHUMAN-ANTONIOMEGAHIT/summary-concoct-refined/bin_by_bin/bin_47_1/bin_47_1-contigs.fa	NEO105

@@ -1,0 +1,12 @@
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.9
+  - bowtie2
+  - datamash
+  - picard
+  - samtools>=1.14
+  - mawk
+  - bedtools
+  - seqkit

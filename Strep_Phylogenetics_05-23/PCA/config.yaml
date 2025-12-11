@@ -1,0 +1,8 @@
+ref: GCF_009738105.1_ASM973810v1
+prefix: strep_mutans_asm5_4
+panels: 
+  full:
+    indlist
+
+data_dir:
+  /projects/sikora/people/xvh856/projects/pipelines/Strep_Phylogenetics_05-23/PCA/data

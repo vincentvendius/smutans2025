@@ -1,0 +1,2 @@
+"sampleId"	"assemblyId"	"coverageP"	"ani"	"coverageAvg"	"coverageEvenessScore"	"heterogenity"	"classification"	"clusterIBDFine"	"country"	"latitude"	"longitudei"	"ageAverage"	"region"	"fq"	"sample_set"
+"64"	"NEO137"	"GCF_000007465.2"	0.889661	0.982769390024872	36.1107015753164	0.841382430920166	0.000156973	"Mutans"	"EuropeEW_8500BP_6500BP"	"Hungary"	46.42	20.33	7591	"CentralEasternEurope"	"/willerslev/datasets/WABI_pipeline/fqs/neo-20181110/NEO137_MA1413_L2.trim.fq.gz"	"NEO137"

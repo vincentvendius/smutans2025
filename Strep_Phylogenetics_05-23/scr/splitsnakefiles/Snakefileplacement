@@ -1,0 +1,161 @@
+configfile:"/projects/sikora/people/xvh856/projects/pipelines/Strep_Phylogenetics_05-23/config.yaml"
+workdir:"/projects/sikora/people/xvh856/projects/pipelines/Strep_Phylogenetics_05-23/"
+import pandas as pd
+import glob
+
+## --------------------------------------------------------------------------------
+## global parameters 
+
+
+## --------------------------------------------------------------------------------
+## global parameters from config file
+
+PREFIX=config["prefix"]
+REF=config["ref"]
+TMP_DIR=config["tmp_dir"]
+MQ=config["MQ"]
+MODE=config["mode"]
+
+
+## --------------------------------------------------------------------------------
+## helpers
+
+unit_df = pd.read_table(config["units"], comment="#").set_index(["sampleId"], drop=False)
+SAMPLES = unit_df.index.values.tolist()
+
+
+## --------------------------------------------------------------------------------
+## functions
+
+def get_bam(wildcards):
+    f=unit_df.loc[(wildcards.sample), "fa"]
+    return f
+
+
+## --------------------------------------------------------------------------------
+## output file sets
+
+plots_all = expand("jplace/{sample}." + PREFIX + ".{ref}.epa_ng.newick", sample=SAMPLES, ref=REF)
+
+
+## --------------------------------------------------------------------------------
+## targets
+
+rule all:
+    input:
+       plots_all
+
+          
+## --------------------------------------------------------------------------------
+## rules
+rule get_vcf_init:
+    input:
+        vcf=lambda wildcards: config["ref"][wildcards.ref]["vcf"],
+    output:
+        vcf=temp(TMP_DIR + "/vcfplacement/{ref}.base.vcf.gz"),
+        tbi=temp(TMP_DIR + "/vcfplacement/{ref}.base.vcf.gz.tbi"),
+    shell:
+        """
+        bcftools view -Ou {input.vcf} | bcftools view -Oz -e 'MAF==0' > {output.vcf}
+        bcftools index -t {output.vcf}
+        """
+
+#get the list of snps which were used to build the original tree (See Snakefilemags)
+rule extract_snplist:
+    input:
+        vcf=TMP_DIR + "/vcfplacement/{ref}.base.vcf.gz",
+        tbi=TMP_DIR + "/vcfplacement/{ref}.base.vcf.gz.tbi"
+    output:
+        "vcfplacement/" + PREFIX + "{ref}.snps.bed.gz"
+    params:
+        contig=lambda wildcards: config["ref"][wildcards.ref]["contig"],
+    shell:
+        """
+        bcftools query -f '%POS0\\t%POS\n' {input.vcf} | awk '{{print "{params.contig}\\t"$1"\\t"$2}}' | bgzip -c > {output}
+        """
+
+
+#Get a vcf file for the low coverage bam files using the list of SNPs just defined
+rule get_sample_vcf_lowcov:
+    input:
+        bam=get_bam,
+        snps="vcfplacement/" + PREFIX + "{ref}.snps.bed.gz"
+    output:
+        vcf="vcfplacement/{sample}.base.{ref}.vcf.gz",
+        idx="vcfplacement/{sample}.base.{ref}.vcf.gz.tbi",
+    params:
+        contig=lambda wildcards: config["ref"][wildcards.ref]["contig"],
+        reffasta=lambda wildcards: config["ref"][wildcards.ref]["fa"],
+    shell:
+        """
+        samtools view -bh -q{MQ} -F 0x400 -e 'qlen >= 30' {input.bam} {params.contig} | samtools mpileup -B -f{params.reffasta} -l{input.snps} - | python /maps/projects/lundbeck/people/dsw670/projects/plasmodium/src/get_haploid_vcf_from_pileup.py {MODE} -s {wildcards.sample}_rnd | bgzip -c > {output.vcf}
+        bcftools index -t {output.vcf}
+        """
+
+#merge the vcf files
+rule merge_vcf:
+    input:
+        vcf1=TMP_DIR + "/vcfplacement/{ref}.base.vcf.gz",
+        tbi1=TMP_DIR + "/vcfplacement/{ref}.base.vcf.gz.tbi",
+        vcf2=expand("vcfplacement/{sample}.base.{ref}.vcf.gz", sample=SAMPLES,ref=REF),
+        tbi2=expand("vcfplacement/{sample}.base.{ref}.vcf.gz.tbi", sample=SAMPLES,ref=REF)
+    output:
+        vcf="vcfplacement/" + PREFIX + "{ref}.vcf.gz",
+        idx="vcfplacement/" + PREFIX + "{ref}.vcf.gz.tbi"
+    threads:
+        4
+    shell:
+        """
+        bcftools merge -Ob -m all {input.vcf1} {input.vcf2} | bcftools +setGT - -- -t q -n . -i 'GT~"2" | GT~"3" | GT~"4"' | bcftools view -a -Oz > {output.vcf}
+        bcftools index -t {output.vcf}
+        """
+
+#convert the individual samples in the merged vcf file to a fasta file
+rule generate_fasta:
+    input:
+        vcf2="vcfplacement/{sample}.base.{ref}.vcf.gz",
+        tbi2="vcfplacement/{sample}.base.{ref}.vcf.gz.tbi",
+        filtvcf="vcfplacement/" + PREFIX + "{ref}.vcf.gz",
+        filttbi="vcfplacement/" + PREFIX + "{ref}.vcf.gz.tbi"
+    output:
+        fa="fa_placement/{sample}." + PREFIX + ".{ref}.mm2.wgaln.fa",
+    shell:
+        """
+        bcftools view -s {wildcards.sample}_rnd {input.filtvcf} |bcftools query -f'[%TGT]'| perl -p -e 's/\/.//g' | (echo -e ">"{wildcards.sample}; cat -) | seqtk seq -l60 | perl -p -e 's/\./N/g' > {output.fa}
+        """
+
+
+#add the sample to the tree
+rule run_epa:
+    input:
+        query="fa_placement/{sample}." + PREFIX + ".{ref}.mm2.wgaln.fa",
+        #query="fa_placement/{sample}." + PREFIX + ".{ref}.query.fa",
+        ref=lambda wildcards: config["ref"][wildcards.ref]["aln"],
+        tree=lambda wildcards: config["ref"][wildcards.ref]["tree"],
+        model=lambda wildcards: config["ref"][wildcards.ref]["model"]
+    output:
+        jplace="jplace/{sample}." + PREFIX + ".{ref}.epa_ng.jplace",
+    log:
+        "logs/{sample}." + PREFIX + ".{ref}.epa_ng.log"
+    threads:
+        4
+    shell:
+        """
+        mkdir -p {wildcards.sample}.{wildcards.ref}
+        epa-ng --tree {input.tree} --model {input.model} --ref-msa {input.ref} --filter-max 1000 --query {input.query} -T {threads} --out-dir {wildcards.sample}.{wildcards.ref} --redo 
+        mv {wildcards.sample}.{wildcards.ref}/epa_result.jplace {output.jplace}
+        mv {wildcards.sample}.{wildcards.ref}/epa_info.log {log}
+        rm -rf {wildcards.sample}.{wildcards.ref}
+        """
+
+#convert into newick format for visualization in R 
+rule graft_epa:
+    input:
+        jplace="jplace/{sample}." + PREFIX + ".{ref}.epa_ng.jplace",
+    output:
+        tree="jplace/{sample}." + PREFIX + ".{ref}.epa_ng.newick",
+    shell:
+        """
+        gappa examine graft --jplace-path {input.jplace} --out-dir jplace
+        """
+        

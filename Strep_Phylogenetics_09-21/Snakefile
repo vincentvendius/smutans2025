@@ -1,0 +1,57 @@
+rule all:
+    input:
+       "data/ref.rep.info.tsv"
+
+
+#Take out irellevant columns and rows
+rule lib_processing:
+   input:
+       "data/library.seqInfo.tsv"
+   output:
+       temp("data/kraken_db_metadata")
+   shell:
+       "grep -e $'\t1301\t' {input} | cut -f1,4 > {output}"
+
+
+
+#compute representative subset of ANI matrix and construct phylogenetic trees
+#for comparison
+rule rep_db:
+    input:
+        fastout="fastani/fani_GCFtax.out",
+        dbmeta="data/kraken_db_metadata"
+    output:
+        rpdb=temp("data/rep_db_list.txt"),
+        dbphylo="plots/db_phylo.pdf",
+        dist_matrix="data/ref_rep_ani.matrix",
+    script:
+        "scripts/rep_db.R"
+
+#Match representative species info with library info
+rule rep_lib:
+    input:
+        repGCF="data/rep_db_list.txt",
+        lib="data/library.seqInfo.tsv"
+    output:
+        temp("data/rep.library.info.tsv")
+    shell:
+        "grep -wf {input.repGCF} {input.lib} > {output}"
+
+#Add filepath to column
+rule rep_lib_path:
+    input:
+        "data/rep.library.info.tsv"
+    output:
+        temp("data/rep.lib.info.tsv")
+    shell:
+        """awk 'BEGIN {{OFS = "\\t"}} {{$7="/willerslev/scratch/krakenuniq-db/hum_microbe/"$7; print}}' {input} > {output}"""
+
+#Add header to file
+rule add_header:
+    input:
+       rep="data/rep.lib.info.tsv",
+       lib="data/library.seqInfo.tsv"
+    output:
+       "data/ref.rep.info.tsv"
+    shell:
+       "head -n 1 {input.lib} | cat - {input.rep} > {output}"

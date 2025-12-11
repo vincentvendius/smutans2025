@@ -1,0 +1,36 @@
+#Get streptococcus reference samples for kraken database:
+cat library.seqInfo.tsv |  awk '$6 == "Streptococcus"' > /science/willerslev/users-shared/science-snm-willerslev-xvh856/kraken_strep_ref.txt
+#Get all paths into one file:
+cut -f7 kraken_strep_ref.txt | sed -En 's/^/\/willerslev\/scratch\/krakenuniq-db\/hum_microbe\//p' > kraken_genomes_list.txt
+#Run fastani to get ANI between all reference strains
+fastANI --threads 20 --ql /science/willerslev/users-shared/science-snm-willerslev-xvh856/kraken_genomes_list.txt  
+--rl /science/willerslev/users-shared/science-snm-willerslev-xvh856/kraken_genomes_list.txt -o fastani.out
+#Take the long format fastani results and remove redundant information
+sed 's/\t.*Strep/\tStrap/' fastani.out | sed 's/\/willerslev.*Strep/Strep/' | sed 's/Strap/Strep/' 
+| sed 's/-tax[[:digit:]]*//g' | sed 's/_genomic-dustmasked.fna//g' | cut -f1-3  > fastani.out2
+#Take the long format fastani results and keep only GCF and taxonomy info
+grep -Po "GCF_\d{9}.\d" fastani.out | xargs -n2 | tr " " "\t" | paste - fastani.out | sed 's/fna\t\/willerslev.*-tax/\t\/tax/' |
+ sed 's/-GCF_.*masked.\t\//\t/' | sed 's/\/willerslev.*-tax/tax/' | sed 's/-GCF.*.fna//' | cut -f1-5 > fastani.outv3
+#Get metadata for species names
+grep -e $'\t1301\t' library.seqInfo.tsv | cut -f1,4 > /science/willerslev/users-shared/science-snm-willerslev-xvh856/kraken_db_metadata
+
+
+
+#association between mutans and gingivalis
+
+#get samples with >10.000 kmers assigned to gingivalis and mutans
+grep -e  $'\tspecies\t' kraken_analysis/kraken_strepv2.txt | grep -e "Streptococcus mutans" | awk '$5>10000' > mut10000.tsv
+grep -e  $'\tspecies\t' kraken_analysis/kraken_porphy2.txt | grep -e "Porphyromonas gingivalis" | awk '$5>10000' > gingi10000.tsv
+cat gingi10000.tsv mut10000.tsv > mut-gingi10000.tsv
+
+#take out only samples which have both gingivalis and mutans
+awk -F'\t' 'NR==FNR { dup[$0]; next; } 
+     $1 in dup' <(awk -F'\t' '{print $1}' mut-gingi10000.tsv | sort | uniq -d) mut-gingi10000.tsv > mut+gingi10000.tsv
+     
+#get samples with 10.000 kmers assigned to either porphyromonas or streptococcus
+#and extract gingivalis and mutans from these samples
+grep -e  $'\tgenus\t' kraken_analysis/kraken_strepv2.txt | awk '$5 > 10000' | cut -f1 | grep -f - kraken_analysis/kraken_strepv2.txt | grep -e $'\tspecies\t'| grep -e "Streptococcus mutans"  > top_mutans.tsv
+
+ grep -e  $'\tgenus\t' kraken_analysis/kraken_porphy2.txt | awk '$5 > 10000' | cut -f1 | grep -f - kraken_analysis/kraken_porphy2.txt | grep -e $'\tspecies\t'| grep -e "Porphyromonas gingivalis"  > top_gingivalis.tsv
+
+cat top_gingivalis.tsv top_mutans.tsv > mut+ging10000.tsv

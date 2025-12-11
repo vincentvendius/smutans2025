@@ -1,0 +1,35 @@
+rule all:
+    input:
+        "fastani/fani_GCFtax.out"
+
+#compute the ANI for a group of genomes
+rule fastani_db:
+    input:
+        "data/kraken_genomes_list.txt"
+    output:
+        "fastani/fastani.out"
+    threads: 20
+    shell:
+        "fastANI --threads {threads} --ql {input}"  
+	" --rl {input} -o {output}"
+
+
+#take out GCF and taxonomic info from fastani output
+rule fani_processing:
+    input:
+        "fastani/fastani.out"
+    output:
+        "fastani/fani_GCFtax.out"
+    shell:
+        "cat {input} | cut -d \"/\" -f12,23 | sed 's/-tax/\ttax/g' | sed 's/-GCF/\tGCF/g' | "
+        "cut -f2,3,5,6,7 | sed 's/_/\t/' | sed 's/_/\t/' | cut -f1,2,3,5,6,7 | sed 's/_/\t/' | "
+        "sed 's/_/\t/' | cut -f1,2,3,4,5,6,8,9 | sed 's/GCF\t/GCF_/g' > {output}"
+
+
+
+        #"grep -Po 'GCF_\d{{9}}.\d' {input} | xargs -n2 | tr ' ' '\t' | "
+        #"paste - {input} | sed 's/fna\t\/willerslev.*-tax/\t\/tax/' | "
+        #"sed 's/-GCF_.*masked.\t\//\t/' | sed 's/\/willerslev.*-tax/tax/' |"
+        #"sed 's/-GCF.*.fna//' | cut -f1-5 > {output}"
+
+

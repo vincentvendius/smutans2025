@@ -1,0 +1,9 @@
+genome	n_genes_called	n_genes_mapped	n_contigs	taxonomic_level	proportion_genes_retained_in_major_clades	genes_retained_index	clade_separation_score	contamination_portion	n_effective_surplus_clades	mean_hit_identity	reference_representation_score	pass.GUNC
+CGG100272-contigs	1901	1856	80	kingdom	1.0	0.98	0.0	0.0	0.0	0.96	0.94	True
+CGG100534-contigs	1966	1926	613	kingdom	1.0	0.98	0.0	0.0	0.0	0.96	0.94	True
+CGG101233-contigs	1904	1871	23	kingdom	1.0	0.98	0.0	0.0	0.0	0.96	0.95	True
+NEO105-contigs	2113	2002	267	class	0.97	0.92	0.94	0.03	0.06	0.95	0.87	False
+NEO105-contigs-filtered	1994	1931	242	kingdom	1.0	0.97	0.0	0.0	0.0	0.95	0.92	True
+NEO137-contigs	1923	1879	77	kingdom	1.0	0.98	0.0	0.0	0.0	0.95	0.93	True
+NEO938-contigs	1991	1953	480	kingdom	1.0	0.98	0.0	0.0	0.0	0.97	0.95	True
+VK63-contigs	1751	1701	642	kingdom	1.0	0.97	0.0	0.0	0.0	0.96	0.94	True

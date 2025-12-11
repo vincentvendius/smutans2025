@@ -1,0 +1,137 @@
+import glob
+import pandas as pd
+from snakemake.utils import validate, min_version
+import yaml
+
+def get_md5sum(x):
+    import hashlib
+
+    return hashlib.md5(x.encode("utf-8")).hexdigest()[:10]
+
+
+"""
+Author: Vincent F. D. Vendius
+Affiliation: Copenhagen University 
+Aim: Reference mapping, genotyping, consensus genomes
+Run: snakemake -s Snakefile --use-conda 
+"""
+#
+##### set minimum snakemake version #####
+min_version("6.0")
+
+configfile:"/projects/sikora/people/xvh856/projects/pipelines/Reference_mapping_v2/config/config.yaml"
+#configfile: "/science/willerslev/users-shared/science-snm-willerslev-xvh856/pipelines/aMAW-taxonomy/config/config.yaml"
+#report: "/science/willerslev/users-shared/science-snm-willerslev-xvh856/pipelines/Reference_mapping_v2/report/workflow.rst"
+
+# This should be placed in the Snakefile.
+
+"""
+Working directory
+"""
+workdir: config["wdir"]
+#loading in config file for aMAW rules
+with open(config["aMAW_config"]) as f:
+    read_config=yaml.safe_load(f)
+
+#REFPATH= pd.read_table(config["ref_samples"])["fa"] #getting .fa locations for representative ref files
+#REFID=pd.read_table(config["ref_samples"])["assemblyId"] #getting names of reference genomes
+REFREAD=pd.read_table(config["ref_samples"],comment="#",sep="\t", lineterminator="\n"
+)
+REFTABLE=REFREAD.set_index(["assemblyId"],drop=False)
+REFID=REFTABLE.index.unique() #getting names of reference genomes
+
+
+#Loading in rules from Antonios workflow
+
+#module aMAW_taxonomy:
+#    snakefile: config["aMAW_snake"] 
+#    config: read_config 
+
+#use rule * from aMAW_taxonomy as aMAW_*
+
+#The list of samples to be processed
+
+DUPS = ["rmdup"]
+
+#sample_table_read = pd.read_table(
+#    config["sample_file_read"],comment="#",sep="\t", lineterminator="\n"
+#)
+#sample_table_read["label_md5"] = sample_table_read.apply(
+#    lambda row: get_md5sum(row.sampleId), axis=1
+#)
+#sample_label_dict_read = sample_table_read.to_dict()["sample_set"]
+#sample_table_read.set_index("sample_set", inplace=True)
+#sample_label_read = sample_table_read.index.unique()
+#sample_label_read = [get_md5sum("NEO137")]
+SAMPLESREAD=pd.read_table(config["sample_file_read"],comment="#",sep="\t", lineterminator="\n"
+)
+SAMPLETABLE=SAMPLESREAD.set_index(["sampleId"],drop=False)
+SAMPLENAMES = SAMPLETABLE.index.unique()
+
+
+
+rule all:
+    input:
+        #rules.aMAW_all.input,
+        done_bowtie2_bam_dedup_filt_ref=expand(
+            config["pdir"] + "/bam/" + config["prefix"] + "/{smp}/{refid}.dedup.filtered.bam",
+            smp=SAMPLENAMES,refid=REFID,
+        ),
+        done_bowtie2_bam_dedup_metrics_ref=expand(
+            config["pdir"] + "/bam/" + config["prefix"] + "/{smp}/{refid}.dedup.metrics",
+            smp=SAMPLENAMES,refid=REFID,
+        ),
+        done_gc=expand(
+            config["pdir"] + "/bam/" + config["prefix"] + "/{smp}/{refid}.srt.filter.genomecov",
+            smp=SAMPLENAMES,refid=REFID,
+        ),
+        done_cov=expand(
+            config["pdir"] + "/bam/" + config["prefix"] + "/{smp}/{refid}.srt.filter.coverage.txt",
+            smp=SAMPLENAMES,refid=REFID,
+        ),
+        tsv_done=expand(
+            config["pdir"] + "/tables/" + config["prefix"] + "/{smp}.summary.tsv.gz",
+            smp=SAMPLENAMES,
+        ),
+        plot_cov_done=expand(
+            config["pdir"] + "/plots/" + config["prefix"] + "/{smp}.cov.pdf",
+            smp=SAMPLENAMES,
+        ),
+        bestmap_done=expand(
+            config["pdir"] + "/tables/" + config["prefix"] + "/{smp}.bestmapping.tsv",
+            smp=SAMPLENAMES,
+        ),
+#        editdist_pdf_done=expand(
+#            config["pdir"] + "/plots/" + config["prefix"] + "/{smp}.editDist.pdf",
+#            smp=SAMPLENAMES,
+#        ),
+#        editdist_tsv_done=expand(
+#            config["pdir"] + "/tables/" + config["prefix"] + "/{smp}.editDist.tsv",
+#            smp=SAMPLENAMES,
+#        ),
+        hetsum_done=expand(
+            config["pdir"] + "/tables/" + config["prefix"] + "/{smp}.bestmap.het.tsv",
+            smp=SAMPLENAMES,
+        ),
+        genes_done=expand(
+            config["pdir"] + "/tables/" + config["prefix"] + "/{smp}.bestmap.genes.tsv",
+            smp=SAMPLENAMES,
+        ),
+        gtf_filter_done=expand(
+            config["pdir"] + "/stats/" + config["prefix"] + "/{smp}.gtf.filter",
+            smp=SAMPLENAMES,
+        ),
+        consensus_done=expand(
+            config["pdir"] + "/fasta/" + config["prefix"] + "/{smp}.fa",
+            smp=SAMPLENAMES,
+        ),
+        topmap=config["pdir"] + "/summary/" + config["prefix"] + "/topmap.tsv",
+           
+
+
+include: "rules/ref_mapping.smk"
+include: "rules/mapping_summary.smk"
+include: "rules/genotyping.smk"
+include: "rules/summary.smk"
+include: "rules/bowtie_index.smk"
+#hello testline

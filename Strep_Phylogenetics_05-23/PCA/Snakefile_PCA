@@ -1,0 +1,118 @@
+import pandas as pd
+
+configfile:"/projects/sikora/people/xvh856/projects/pipelines/Strep_Phylogenetics_05-23/PCA/config.yaml"
+workdir:"/projects/sikora/people/xvh856/projects/pipelines/Strep_Phylogenetics_05-23/PCA"
+
+## --------------------------------------------------------------------------------
+## global parameters from config file
+REF=config["ref"]
+PREFIX = config["prefix"] ## prefix for output files
+DAT_DIR=config["data_dir"]
+
+
+
+## --------------------------------------------------------------------------------
+## output file sets
+
+pca_all = expand(DAT_DIR + "/{panel}." + PREFIX + ".{ext}", panel = config["panels"], ext=['eigenvec', 'eigenval']) 
+pca_plots_all = expand("plots/{panel}." + PREFIX + ".{ext}", panel=config["panels"], ext=['pca.plot.pdf']) 
+
+
+## --------------------------------------------------------------------------------
+## targets
+
+rule all:
+    input:
+       pca_all + pca_plots_all
+
+          
+## --------------------------------------------------------------------------------
+## rules
+
+rule get_plink:
+    input:
+        #snpvcf="vcf/{ref}" + PREFIX + ".filt.snps.all.mm2.vcf.gz",
+        #snptbi="vcf/{ref}" + PREFIX + ".filt.snps.all.mm2.vcf.gz.tbi",
+        #placementvcf="vcfplacement/" + PREFIX + ".{ref}.vcf.gz",
+        #placementidx="vcfplacement/" + PREFIX + ".{ref}.vcf.gz.tbi"
+        snpvcf=DAT_DIR + "/filt.snps.all.vcf.gz",
+    output:
+        DAT_DIR + "/plink/" + REF + PREFIX + ".aln.bed",
+        DAT_DIR + "/plink/" + REF + PREFIX + ".aln.bim",
+        DAT_DIR + "/plink/" + REF + PREFIX + ".aln.fam",
+    params:
+        px=DAT_DIR + "/plink/" + REF + PREFIX + ".aln"
+    shell:
+        """
+        plink --vcf {input.snpvcf} --double-id --real-ref-alleles --make-bed --allow-extra-chr --mac 1 --biallelic-only --out {params.px}
+        """
+
+rule process_plink:
+    input:
+        bed=DAT_DIR + "/plink/" + REF + PREFIX + ".aln.bed",
+        bim=DAT_DIR + "/plink/" + REF + PREFIX + ".aln.bim",
+        fam=DAT_DIR + "/plink/" + REF + PREFIX + ".aln.fam",
+    output:
+        DAT_DIR + "/plink/" + REF + PREFIX + ".aln.pop.fam",
+        DAT_DIR + "/plink/" + REF + PREFIX + ".aln.cluster",
+        DAT_DIR + "/plink/" + REF + PREFIX + ".aln.imiss",
+        DAT_DIR + "/plink/" + REF + PREFIX + ".aln.lmiss",
+        DAT_DIR + "/plink/" + REF + PREFIX + ".aln.tv.snplist",
+    params:
+        px=DAT_DIR + "/plink/" + REF + PREFIX + ".aln"
+    shell:
+        """
+        cat {params.px}.bim | awk '{{print "1",$1":"$4,$3,$4,$5,$6}}' | tr ' ' '\\t' > {params.px}.bim1
+        mv {params.px}.bim1 {params.px}.bim
+        cat {params.px}.fam |  awk '{{print $1,$2,$3,$4,$5,$2}}' > {params.px}.pop.fam
+        cut -f1,2,6 -d' ' {params.px}.pop.fam > {params.px}.cluster
+        plink --bfile {params.px} --missing --out {params.px}
+        awk '{{print $2,$5$6}}' {input.bim} | grep -v "CT\|TC\|GA\|AG" | cut -f1 -d' ' > {params.px}.tv.snplist
+        """
+
+
+rule run_pca:
+    input:
+        DAT_DIR + "/plink/" + REF + PREFIX + ".aln.pop.fam",
+        DAT_DIR + "/plink/" + REF + PREFIX + ".aln.cluster",
+        DAT_DIR + "/plink/" + REF + PREFIX + ".aln.imiss",
+        DAT_DIR + "/plink/" + REF + PREFIX + ".aln.lmiss",
+        DAT_DIR + "/plink/" + REF + PREFIX + ".aln.tv.snplist",
+        bed=DAT_DIR + "/plink/" + REF + PREFIX + ".aln.bed",
+        bim=DAT_DIR + "/plink/" + REF + PREFIX + ".aln.bim",
+        fam=DAT_DIR + "/plink/" + REF + PREFIX + ".aln.fam",
+        panel=lambda wildcards: config["panels"][wildcards.panel],
+    output:
+        DAT_DIR + "/{panel}." + PREFIX + ".eigenval",
+        DAT_DIR + "/{panel}." + PREFIX + ".eigenvec",
+        DAT_DIR + "/{panel}." + PREFIX + ".pcl.gz"
+    params:
+        px=DAT_DIR + "/plink/" + REF + PREFIX + ".aln"
+    threads:
+        32
+    shell:
+        """
+        grep -Fwf {input.panel} {input.fam} | cut -f1,2 -d' ' > {wildcards.panel}.indlist
+        gcta64 --bfile {params.px} --maf 0.05 --keep {wildcards.panel}.indlist --make-grm --out {wildcards.panel}.{PREFIX} --threads {threads}
+        gcta64 --grm {wildcards.panel}.{PREFIX} --pca 50 --out {wildcards.panel}.{PREFIX} --threads {threads}
+        gcta64 --bfile {params.px} --maf 0.05 --keep {wildcards.panel}.indlist --pc-loading {wildcards.panel}.{PREFIX} --out {wildcards.panel}.{PREFIX} --threads {threads}
+        gzip {wildcards.panel}.{PREFIX}.pcl
+        """
+
+rule plot_pca:
+    input:
+        eig_file=DAT_DIR + "/{panel}." + PREFIX + ".eigenvec",
+        ind_file=DAT_DIR + "/{panel}.inds.txt",
+        hl_file="ancientlist",
+        sample_file="metadata.tsv",
+        #sample_file=PREFIX + ".sample_info.tsv",
+    output:
+        "plots/{panel}." + PREFIX + ".pca.plot.pdf",
+#    conda:
+#        "../../Reference_mapping_v2/envs/Renvironment.yaml"
+    params:
+    shell:
+        """
+        Rscript plot_pca.R {input.eig_file} {wildcards.panel} {input.sample_file} {input.hl_file} {output}
+        """
+

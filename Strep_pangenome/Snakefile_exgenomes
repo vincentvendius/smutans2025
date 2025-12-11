@@ -1,0 +1,106 @@
+configfile:"config.yaml"
+workdir:"/science/willerslev/users-shared/science-snm-willerslev-xvh856/pipelines/Strep_pangenome/"
+import pandas as pd
+import os
+
+#file references
+PREFIX=config["prefix"]
+KRAKENPATH=config["krakenpath"]
+KRAKENSUFFIX=config["krakensuffix"]
+BAM_DIR=config["bam_dir"]
+SAMPLEDATA= pd.read_table(config["sampledata"], comment="#")
+TMPPATH=config["tmppath"]
+BINNING_ALGO=config["binning_algo"]
+COLLECTION_NAME=config["collection_name"]
+ASSEMBLY_DIR=config["assembly_dir"]
+REF_DIR=config["ref_dir"]
+
+#define sample set
+SET=["GCF_000007465.2"]
+SAMPLESET=SAMPLEDATA.loc[SAMPLEDATA["assemblyId"].isin(SET)].set_index(["sampleId"],drop=False)
+SAMPLESET=SAMPLESET.loc[SAMPLESET["coverageP"]>0.75]
+SAMPLES = SAMPLESET.index.unique()
+
+def sample_dir(wildcards):
+    return expand(ASSEMBLY_DIR + PREFIX + "/samples/contigdbs/{sample}.db",sample=SAMPLES,allow_missing=True)
+
+
+def get_fq(wildcards):
+    return SAMPLESET.loc[(wildcards.sample), "fq"]
+
+rule all:
+    input:
+         sample_dir
+
+#change names of consensus genomes from Strep_mapping
+rule fix_names_one:
+    input:
+         REF_DIR + "{sample}/GCF_000007465.2.streptococcus.fa"
+    output:
+         REF_DIR + "{sample}/fixed_GCF_000007465.2.streptococcus.fa"
+    shell:
+         """
+         sed 's/>/>{wildcards.sample}_/g' {input} > {output}
+         sed -i 's/\s[^\\n]*//' {output}
+         """
+
+
+#create an anvio contigs database from the reference contigs which includes relevant metadata
+rule contig_database:
+    input:
+        REF_DIR + "{sample}/fixed_GCF_000007465.2.streptococcus.fa"
+    output:
+        cdb=ASSEMBLY_DIR + PREFIX + "/samples/contigdbs/{sample}.db"
+    threads: 1
+    params:
+        tmp=ASSEMBLY_DIR + "tmp/{sample}"
+    shell:
+        """
+        rm -rf {params.tmp}
+        mkdir {params.tmp}
+        anvi-gen-contigs-database -f {input} -o {output.cdb} -n \"{wildcards.sample}\" --num-threads {threads}
+        anvi-run-hmms -c {output.cdb} --num-threads {threads}
+        anvi-run-ncbi-cogs -c {output.cdb} --temporary-dir-path {params.tmp} --num-threads {threads}
+        anvi-run-pfams -c {output.cdb} --num-threads {threads} 
+        rm {params.tmp}/*
+        rmdir {params.tmp}
+        """
+
+
+#This is a file with columns: name of reference,
+rule external_genomes:
+    input:
+        expand(ASSEMBLY_DIR + PREFIX + "/samples/contigdbs/{sample}.db",sample=SAMPLES,allow_missing=True)
+    output:
+        exgenomes=ASSEMBLY_DIR + PREFIX + "/external-genomes.txt" 
+    params:
+        contigpath=ASSEMBLY_DIR + PREFIX + "/samples/contigdbs"
+    shell:
+        "anvi-script-gen-genomes-file --input-dir {params.contigpath} --output-file {output}"
+
+#We generate a genomes storage for the pangenomic analysis
+rule genome_storage:
+     input:
+        exgenomes=ASSEMBLY_DIR + PREFIX + "/external-genomes.txt" 
+     output:
+        genstor=ASSEMBLY_DIR + PREFIX + "/PAN_ex-GENOMES.db"
+     shell:
+        "anvi-gen-genomes-storage -e {input.exgenomes} -o {output.genstor}"
+
+#Computation of pan genome from the internal storage of genomes
+rule pangenome:
+    input:
+       genstor=ASSEMBLY_DIR + PREFIX + "/PAN_ex-GENOMES.db",
+    output:
+       pangen=ASSEMBLY_DIR + PREFIX + "/" + PREFIX + "_ex/" + PREFIX + "-PAN.db" 
+    params:
+       pangen=ASSEMBLY_DIR + PREFIX + "/" + PREFIX + "_ex"
+    threads: 40 
+    shell:
+       "anvi-pan-genome -g {input} --use-ncbi-blast --minbit 0.5 --mcl-inflation 2 --project-name {PREFIX} --num-threads {threads} -o {params.pangen}"
+
+#now to examine the pangenome!
+"anvi-display-pan -p {PREFIX}-PAN_ex.db -g PAN-GENOMES_ex.db"
+"anvi-display-pan -p mutans_only_strep_ex/mutans_only_strep-PAN.db -g PAN_ex-GENOMES.db"
+
+

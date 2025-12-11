@@ -1,0 +1,59 @@
+# Basic config File
+# Where is the workflow
+wdir: "/projects/sikora/people/xvh856/projects/pipelines/Reference_mapping_v2"
+# Where is the output from aMAW
+rdir: "/projects/sikora/people/xvh856/projects/pipelines/aMAW-taxonomy/results"
+# Where is the aMAW pipeline
+aMAW_config: "/projects/sikora/people/xvh856/aMAW-taxonomy/config/config.yaml"
+aMAW_snake: "/projects/sikora/people/xvh856/aMAW-taxonomy/Snakefile"
+# Where is the reference mapping output
+pdir: "/projects/sikora/people/xvh856/projects/pipelines/Reference_mapping_v2/results"
+#prefix: "streptococcus_highcoverage"
+#prefix: "pyogenes"
+prefix: "streptococcus_highcoverage_2"
+# Where do you want to have TMP
+tmp: "/projects/sikora/people/xvh856/projects/pipelines/Reference_mapping_v2/results/tmp"
+#what is the label, file name and sample classficiation
+#sample_file_read: "/projects/sikora/people/xvh856/aMAW-taxonomy/data/joined_amaw_table.tsv"
+#sample_file_read: "/maps/projects/lundbeck/people/dsw670/projects/strep/mutans/data/map/ancient/units.tsv"
+#sample_file_read: "/projects/sikora/people/xvh856/projects/pipelines/Reference_mapping_v2/sample_info/porphy_fq_path.tsv"
+sample_file_read: "/projects/sikora/people/xvh856/projects/pipelines/Reference_mapping_v2/sample_info/mutans_units.tsv"
+#sample_file_read: "/maps/projects/lundbeck/people/dsw670/projects/strep/pyogenes/data/map/ancient/units.tsv"
+ref_samples: "/projects/sikora/people/xvh856/projects/pipelines/Strep_pangenome/data/sample_info/ref.rep.info.tsv"
+#ref_samples: "/projects/sikora/people/xvh856/projects/pipelines/Reference_mapping_v2/sample_info/porphyromonas_references.tsv"
+#ref_samples: "/projects/sikora/people/xvh856/projects/pipelines/Strep_Phylogenetics_09-21/data/Porphy/linkingfile"
+mdmg_weight: [1]
+
+
+# Binary paths
+bowtie2_bin: "bowtie2"
+bowtie2_build_bin: "bowtie2-build"
+samtools_bin: "samtools"
+picard_bin: "java"
+mawk_bin: mawk
+
+# Resource allocation
+tp_threads: 2
+
+
+# PROFILING
+bowtie2_tp_db: "/projects/sikora/people/xvh856/projects/pipelines/Strep_mapping/data/ref_index"
+#bowtie2_tp_db: "/projects/sikora/people/xvh856/projects/pipelines/Reference_mapping_v2/ref_index_porphy"
+#tp_bowtie2_parms: -D 15 -R 2 -N 1 -L 22 -i S,1,1.15 --np 1 --mp "1,1" --rdg "0,1" --rfg "0,1" --score-min "L,0,-0.1" --no-unal -k 100
+tp_bowtie2_parms: -D 20 -R 3 -N 1 -L 20 -i S,1,0.50
+
+# Picard
+picard_jar: "/maps/projects/lundbeck/apps/picard/build/libs/picard.jar"
+picard_java_opts: "-Xmx16g -XX:ParallelGCThreads=4"
+
+# Samtools
+samtools_view_parms: "-q1 -F 0x400 -bh"
+samtools_sort_parms: "-m 1G -T /projects/sikora/people/xvh856/projects/pipelines/Reference_mapping_v2/tmp/"
+#samtools_sort_parms: "-m 1G -T /dev/shm/"
+# R scripts
+Rbin: "Rscript"
+editdistdir: "/projects/sikora/people/xvh856/projects/pipelines/Reference_mapping_v2/src/plotEditDist.R"
+summarydir: "/projects/sikora/people/xvh856/projects/pipelines/Reference_mapping_v2/src/summary.R"
+libdb: "/projects/sikora/people/xvh856/projects/pipelines/Strep_mapping/data/sample_info"
+dist_matrix: "/projects/sikora/people/xvh856/projects/pipelines/Reference_mapping_v2/sample_info/ref_rep_ani.matrix"
+#dist_matrix: "/projects/sikora/people/xvh856/projects/pipelines/Strep_mapping/data/sample_info/porphy_ref_rep_ani.matrix"
