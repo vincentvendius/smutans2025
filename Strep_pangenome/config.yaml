@@ -1,10 +1,10 @@
 #sampledata: data/sample_info/topmap_meta.tsv
 #sampledata: data/sample_info/ref_and_mags.tsv
 #sampledata: data/sample_info/ref_MAG_only.tsv
-#sampledata: data/sample_info/ref_MAGnew.tsv
+sampledata: data/sample_info/ref_MAGnew.tsv
 #sampledata: data/sample_info/phylo_mag.tsv
 #sampledata: data/sample_info/mag_phylo_genus.tsv
-sampledata: data/sample_info/mag_phylo_biggenus.tsv
+#sampledata: data/sample_info/mag_phylo_biggenus.tsv
 #ref_dir: ../Strep_mapping/tables/
 #prefix: strep_pangenome
 #prefix: Steppe_3500BP_1300BP
