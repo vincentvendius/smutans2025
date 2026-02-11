@@ -68,9 +68,6 @@ rule contig_database:
         mkdir {params.tmp}
         anvi-script-reformat-fasta {input} --seq-type NT --overwrite
         anvi-gen-contigs-database -f {input} -o {output.cdb} -n \"{wildcards.sample}\" --num-threads {threads}
-        anvi-run-hmms -c {output.cdb} --num-threads {threads}
-        anvi-run-ncbi-cogs -c {output.cdb} --temporary-dir-path {params.tmp} --num-threads {threads}
-        anvi-run-pfams -c {output.cdb} --num-threads {threads} 
         anvi-run-kegg-kofams -c {output.cdb} -T {threads}
         rm {params.tmp}/*
         rmdir {params.tmp}
@@ -113,4 +110,42 @@ rule pangenome:
 "anvi-display-pan -p {PREFIX}-PAN_ex.db -g PAN-GENOMES_ex.db"
 "anvi-display-pan -p mutans_only_strep_ex/mutans_only_strep-PAN.db -g PAN_ex-GENOMES.db"
 
+#SCripts for calculating the metabolic profiles using the contig databases
+#Replace the mag-phylo-genus4 with whatever prefix your file has
+"""
+anvi-estimate-metabolism -e external-genomes.txt \
+                         -O Mutans_metabolism
+anvi-import-misc-data mutans_groups.txt \
+                      -p mag-phylo-genus4_ex/mag-phylo-genus4-PAN.db \
+                      --target-data-table layers
+anvi-compute-metabolic-enrichment -M Mutans_metabolism_modules.txt \
+                                  -G mutans_groups.txt \
+                                  -o Mutans_enriched_modules.txt
+anvi-compute-functional-enrichment-in-pan -p mag-phylo-genus4_ex/mag-phylo-genus4-PAN.db \
+                                          -g PAN_ex-GENOMES.db \
+                                          -o Functional_enriched_categories.txt \
+                                          -F Functional_enriched_categories.tsv \
+                                          --category-variable group \
+                                          --annotation-source COG20_CATEGORY
+
+anvi-compute-functional-enrichment-in-pan -p mag-phylo-genus4_ex/mag-phylo-genus4-PAN.db \
+                                          -g PAN_ex-GENOMES.db \
+                                          -o Functional_enriched_function.txt \
+                                          -F Functional_enriched_function.tsv \
+                                          --category-variable group \
+                                          --annotation-source COG20_FUNCTION
+
+anvi-compute-functional-enrichment-in-pan -p mag-phylo-genus4_ex/mag-phylo-genus4-PAN.db \
+                                          -g PAN_ex-GENOMES.db \
+                                          -o Functional_enriched_kegg.txt \
+                                          -F Functional_enriched_kegg.tsv \
+                                          --category-variable group \
+                                          --annotation-source KEGG_Module
+anvi-compute-functional-enrichment-in-pan -p mag-phylo-genus4_ex/mag-phylo-genus4-PAN.db \
+                                          -g PAN_ex-GENOMES.db \
+                                          -o Functional_enriched_kofam.txt \
+                                          -F Functional_enriched_kofam.tsv \
+                                          --category-variable group \
+                                          --annotation-source KOfam
+"""
 
