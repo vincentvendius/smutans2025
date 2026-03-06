@@ -14,6 +14,7 @@ library(patchwork)
 library(viridis)
 library(phytools)
 library(TraMineR)
+library(BactDating)
 world <- map_data("world")
 set.seed(16)
 
@@ -97,14 +98,15 @@ highlighted<-c("CGG100272","CGG100534","CGG_2_18521","NEO938","RISE373","NEO31",
                "RISE540","VK35","RISE349","DA104","RISE413","NEO170","NEO160","VK441","S_troglodytae","NEO137","NEO105","VK63","CGG101233")
 tip_rows <- which(phyl_final$edge[,2] %in% match(highlighted, phyl_final$tip.label))
 phyl_final$edge.length[tip_rows] <- 0
-phyl_final$edge.length<-ifelse(phyl_final$edge.length>0.05,new_length,phyl_final$edge.length) #identify branches made very long by cluster of ancient lowcov samples
+
+phyl_final$edge.length<-ifelse(phyl_final$edge.length>0.04,0,phyl_final$edge.length) #identify branches made very long by cluster of ancient lowcov samples
 tree_phyl_final <- ggtree(phyl_final)+geom_rootedge(rootedge=0.0005)+#,branch.length = "none"
   ggtitle("Placement merged\nPhylogenetic Tree")#+xlim(0,0.1)
 tree_final<-edit_phylo_branch(tree_phyl_final,highlighted)
 
 tip_rows <- which(phyl_withmags$edge[,2] %in% match(highlighted, phyl_withmags$tip.label))
 phyl_withmags$edge.length[tip_rows] <- 0
-phyl_withmags$edge.length<-ifelse(phyl_withmags$edge.length>0.05,new_length,phyl_withmags$edge.length) #identify branches made very long by cluster of ancient lowcov samples
+phyl_withmags$edge.length<-ifelse(phyl_withmags$edge.length>0.04,0,phyl_withmags$edge.length) #identify branches made very long by cluster of ancient lowcov samples
 tree_withmags<- ggtree(phyl_withmags)+ geom_rootedge(rootedge=0.0005)+#,branch.length= "none"
   ggtitle("Phylogenetic tree with \nplacement of MAGs")
 
@@ -215,7 +217,7 @@ CGG101233<-read.delim2("~/PhD/misc_scripts/data/MAGs-ref_annotations/CGG101233-c
 CGG101233$NAME<-"CGG101233"
 BAKTA_modern <- read.delim("~/PhD/misc_scripts/data/mutans_gene_cov/cds_modern.tsv", 
                          col.names = c("sampleId","X.Sequence.Id","Type","Start","Stop","Strand","Locus.Tag","Gene","Product","DbXrefs"))
-BAKTA_modern$NAME<-sub("\\.","N",cds_modern$sampleId)
+BAKTA_modern$NAME<-sub("\\.","N",BAKTA_modern$sampleId)
 BAKTA_comb<-BAKTA_modern%>%select(!sampleId)%>%rbind(NEO938)%>%rbind(NEO137)%>%rbind(NEO105)%>%rbind(VK63)%>%rbind(CGG100534)%>%
   rbind(CGG101233)%>%rbind(CGG100272) #get bakta annotations for both modern assemblies and ancient mags
 #define if a gene is annotated ,it has gene coverage, if the same gene is not found in another sample, it does not have gene coverage
